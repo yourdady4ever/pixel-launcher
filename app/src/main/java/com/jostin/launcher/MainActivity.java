@@ -13,6 +13,7 @@ import android.content.ComponentCallbacks2;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.LauncherApps;
 import android.content.pm.PackageManager;
 import android.graphics.Canvas;
 import android.graphics.Paint;
@@ -23,6 +24,8 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.Process;
+import android.os.UserHandle;
 import android.provider.AlarmClock;
 import android.provider.MediaStore;
 import android.provider.Settings;
@@ -111,6 +114,28 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
         }
     };
 
+    /** El perfil de trabajo se pausó, se reanudó, se creó o se borró. */
+    private final BroadcastReceiver profiles = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context c, Intent i) {
+            reloadWork();
+        }
+    };
+
+    /** Apps que instalan o quitan en el perfil de trabajo; las tuyas ya las avisa el receptor de paquetes. */
+    private final LauncherApps.Callback workApps = new LauncherApps.Callback() {
+        @Override public void onPackageRemoved(String pkg, UserHandle user) { if (!user.equals(Process.myUserHandle())) reloadWork(); }
+        @Override public void onPackageAdded(String pkg, UserHandle user) { if (!user.equals(Process.myUserHandle())) reloadWork(); }
+        @Override public void onPackageChanged(String pkg, UserHandle user) { if (!user.equals(Process.myUserHandle())) reloadWork(); }
+        @Override public void onPackagesAvailable(String[] pkgs, UserHandle user, boolean replacing) { if (!user.equals(Process.myUserHandle())) reloadWork(); }
+        @Override public void onPackagesUnavailable(String[] pkgs, UserHandle user, boolean replacing) { if (!user.equals(Process.myUserHandle())) reloadWork(); }
+    };
+
+    private void reloadWork() {
+        Drawer.invalidateApps();
+        if (drawerOpen) drawer.load(false);
+    }
+
     @Override
     protected void onCreate(Bundle saved) {
         super.onCreate(saved);
@@ -140,6 +165,15 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
         f.addAction(Intent.ACTION_PACKAGE_CHANGED);
         f.addDataScheme("package");
         registerReceiver(packages, f);
+        IntentFilter wf = new IntentFilter();
+        wf.addAction(Intent.ACTION_MANAGED_PROFILE_ADDED);
+        wf.addAction(Intent.ACTION_MANAGED_PROFILE_REMOVED);
+        wf.addAction(Intent.ACTION_MANAGED_PROFILE_AVAILABLE);
+        wf.addAction(Intent.ACTION_MANAGED_PROFILE_UNAVAILABLE);
+        wf.addAction(Intent.ACTION_MANAGED_PROFILE_UNLOCKED);
+        registerReceiver(profiles, wf);
+        LauncherApps la = getSystemService(LauncherApps.class);
+        if (la != null) la.registerCallback(workApps, handler);
         handleDemo(getIntent());
         if (recovered) {
             handler.postDelayed(() -> Sheet.pill(this, backdrop, "Algo falló al abrir. Regresé a tu último diseño que funcionaba."), 1200);
@@ -161,9 +195,12 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
         super.onDestroy();
         try {
             unregisterReceiver(packages);
+            unregisterReceiver(profiles);
         } catch (Exception ignored) {
             // nada
         }
+        LauncherApps la = getSystemService(LauncherApps.class);
+        if (la != null) la.unregisterCallback(workApps);
     }
 
     // ==================== Construcción ====================
@@ -1215,6 +1252,15 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
 
     @Override
     public void appActions(Drawer.App app, View from) {
+        if (app.work()) {
+            // Inicio, dock y ocultas guardan solo el paquete: con una de trabajo se confundirían con la tuya
+            Sheet.show(this, backdrop, app.label + " · trabajo",
+                    Sheet.item("Información de la app", Icons.INFO, () -> WorkApps.info(this, app)),
+                    Sheet.item("Pausar apps de trabajo", Icons.WORK, () -> {
+                        if (WorkApps.setPaused(this, true)) Sheet.pill(this, backdrop, "Apps de trabajo en pausa");
+                    }));
+            return;
+        }
         Sheet.show(this, backdrop, app.label,
                 Sheet.item("Agregar a inicio", Icons.PLUS, () -> {
                     closeDrawer();
@@ -1974,10 +2020,24 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
 
     // ==================== Utilidades ====================
 
+    static void launch(Activity a, Drawer.App x, View from) {
+        if (x.work()) WorkApps.launch(a, x, from, launchOptions(a, from));
+        else launch(a, x.pkg, from);
+    }
+
     static void launch(Activity a, String pkg, View from) {
         Intent i = a.getPackageManager().getLaunchIntentForPackage(pkg);
         if (i == null) return;
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            a.startActivity(i, launchOptions(a, from));
+        } catch (Exception ignored) {
+            // nada
+        }
+    }
+
+    /** La animación con que se abre una app, según lo que elegiste en el estudio. */
+    private static Bundle launchOptions(Activity a, View from) {
         Bundle opts = null;
         int style = Prefs.motion(a) == 3 ? -1 : Prefs.appAnim(a);
         boolean hasView = from != null && from.getWidth() > 0;
@@ -1990,11 +2050,7 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
         } else if (style == 2) {
             opts = ActivityOptions.makeCustomAnimation(a, android.R.anim.fade_in, android.R.anim.fade_out).toBundle();
         }
-        try {
-            a.startActivity(i, opts);
-        } catch (Exception ignored) {
-            // nada
-        }
+        return opts;
     }
 
     static void appInfo(Context c, String pkg) {

@@ -1,6 +1,7 @@
 package com.jostin.launcher;
 
 import android.app.Activity;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -8,6 +9,7 @@ import android.content.pm.ResolveInfo;
 import android.graphics.drawable.Drawable;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.UserHandle;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.Gravity;
@@ -49,11 +51,25 @@ class Drawer extends FrameLayout {
 
     static final class App {
         final String label, pkg, key;
+        /** Solo en las de trabajo: su perfil, la pantalla que abre y su ícono con maletín. */
+        final UserHandle user;
+        final ComponentName comp;
+        Drawable badged;
 
         App(String label, String pkg) {
+            this(label, pkg, null, null);
+        }
+
+        App(String label, String pkg, UserHandle user, ComponentName comp) {
             this.label = label;
             this.pkg = pkg;
             this.key = strip(label);
+            this.user = user;
+            this.comp = comp;
+        }
+
+        boolean work() {
+            return user != null;
         }
     }
 
@@ -64,12 +80,14 @@ class Drawer extends FrameLayout {
     }
 
     private static List<App> cache;
+    private static List<App> workCache = new ArrayList<>();
     private static final Map<String, Drawable> iconCache = new HashMap<>();
     private static int iconStyleCached = -1;
     private static final Handler main = new Handler(Looper.getMainLooper());
 
     static void invalidateApps() {
         cache = null;
+        workCache = new ArrayList<>();
         iconCache.clear();
     }
 
@@ -102,6 +120,7 @@ class Drawer extends FrameLayout {
                 Drawable d = IconEngine.icon(app, x.pkg);
                 if (d != null) pre.put(x.pkg, d);
             }
+            List<App> work = WorkApps.load(app);
             main.post(() -> {
                 if (iconStyleCached == style || iconStyleCached == -1) {
                     iconStyleCached = style;
@@ -110,6 +129,7 @@ class Drawer extends FrameLayout {
                     }
                 }
                 cache = out;
+                workCache = work;
                 l.loaded(out);
             });
         }).start();
@@ -137,10 +157,16 @@ class Drawer extends FrameLayout {
     // ---------- Vista ----------
 
     private final Activity act;
+    private final Backdrop backdrop;
     private final Host host;
     private final boolean pick;
     private final List<App> all = new ArrayList<>();
+    private final List<App> work = new ArrayList<>();
     private final List<App> shown = new ArrayList<>();
+    private final Segmented tabs;
+    private final View workRow;
+    private final TextView workText;
+    private boolean workPaused = false;
     private final Adapter adapter = new Adapter();
     private final GridView grid;
     private final EditText search;
@@ -157,6 +183,7 @@ class Drawer extends FrameLayout {
     Drawer(Activity a, Backdrop b, Host h, boolean pickMode) {
         super(a);
         act = a;
+        backdrop = b;
         host = h;
         pick = pickMode;
         setClickable(true);
@@ -202,6 +229,14 @@ class Drawer extends FrameLayout {
         bar.addView(search, ql);
         column.addView(bar, new LinearLayout.LayoutParams(-1, Ui.dp(a, 52)));
 
+        // Personal y Trabajo: solo sale si tienes perfil de trabajo
+        tabs = new Segmented(a, b, "Personal", "Trabajo");
+        tabs.setListener(k -> filter(true));
+        tabs.setVisibility(GONE);
+        LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(-1, Ui.dp(a, 44));
+        tl.topMargin = Ui.dp(a, 12);
+        column.addView(tabs, tl);
+
         empty = Ui.text(a, "", 15, Ui.MUTED, Ui.REGULAR);
         empty.setGravity(Gravity.CENTER);
         empty.setPadding(0, Ui.dp(a, 30), 0, Ui.dp(a, 10));
@@ -225,6 +260,29 @@ class Drawer extends FrameLayout {
         web.setVisibility(GONE);
         webRow = web;
         column.addView(web, new LinearLayout.LayoutParams(-1, -2));
+
+        // Pausar o reanudar el perfil de trabajo, como en el launcher de Pixel
+        LinearLayout wr = new LinearLayout(a);
+        wr.setGravity(Gravity.CENTER_VERTICAL);
+        wr.setPadding(wp, wp, wp, wp);
+        Glass.apply(wr, b, 20);
+        ImageView wri = new ImageView(a);
+        wri.setImageDrawable(Icons.of(Icons.WORK));
+        wr.addView(wri, new LinearLayout.LayoutParams(Ui.dp(a, 20), Ui.dp(a, 20)));
+        workText = Ui.text(a, "", 15, Ui.TEXT, Ui.MEDIUM);
+        LinearLayout.LayoutParams wtl = new LinearLayout.LayoutParams(0, -2, 1f);
+        wtl.leftMargin = Ui.dp(a, 12);
+        wr.addView(workText, wtl);
+        Ui.pressable(wr, 0.97f);
+        wr.setOnClickListener(v -> {
+            Sound.play(v, Sound.TOGGLE);
+            setWorkPaused(!workPaused);
+        });
+        wr.setVisibility(GONE);
+        workRow = wr;
+        LinearLayout.LayoutParams wrl = new LinearLayout.LayoutParams(-1, -2);
+        wrl.topMargin = Ui.dp(a, 12);
+        column.addView(wr, wrl);
 
         // Las apps que más usas (se cuenta solo en tu teléfono)
         suggestRow = new LinearLayout(a);
@@ -286,8 +344,24 @@ class Drawer extends FrameLayout {
             all.clear();
             Set<String> hidden = Prefs.hidden(act);
             for (App x : list) if (showHidden || !hidden.contains(x.pkg)) all.add(x);
+            // Al elegir una app para el dock no salen las de trabajo: el dock guarda solo el paquete
+            work.clear();
+            boolean hasWork = !pick && !WorkApps.profiles(act).isEmpty();
+            if (hasWork) work.addAll(workCache);
+            workPaused = hasWork && WorkApps.paused(act);
+            tabs.setVisibility(hasWork ? VISIBLE : GONE);
+            if (!hasWork && tabs.selected() == 1) tabs.select(0, false);
             filter(animate);
         });
+    }
+
+    /** Pausar no pide nada; para reanudar Android puede pedir tu PIN. MainActivity recarga al cambiar. */
+    private void setWorkPaused(boolean on) {
+        if (!WorkApps.setPaused(act, on)) {
+            Sheet.pill(act, backdrop, "Android no dejó cambiarlo; usa el botón de trabajo de los ajustes rápidos");
+            return;
+        }
+        Sheet.pill(act, backdrop, on ? "Apps de trabajo en pausa" : "Reanudando apps de trabajo");
     }
 
     void focusSearch() {
@@ -297,6 +371,7 @@ class Drawer extends FrameLayout {
     }
 
     void reset() {
+        tabs.select(0, false);
         search.setText("");
         Sheet.hideKeyboard(act, search);
         grid.setSelection(0);
@@ -304,14 +379,24 @@ class Drawer extends FrameLayout {
 
     private void filter(boolean animate) {
         String q = strip(search.getText().toString().trim());
+        boolean workTab = tabs.getVisibility() == VISIBLE && tabs.selected() == 1;
         shown.clear();
-        for (App x : all) if (q.isEmpty() || x.key.contains(q)) shown.add(x);
-        boolean none = shown.isEmpty() && !all.isEmpty();
-        empty.setVisibility(none ? VISIBLE : GONE);
-        empty.setText("No encontré esa app");
+        if (q.isEmpty()) {
+            shown.addAll(workTab ? work : all);
+        } else {
+            // Al buscar salen las dos; la de trabajo se distingue por su maletín
+            for (App x : all) if (x.key.contains(q)) shown.add(x);
+            for (App x : work) if (x.key.contains(q)) shown.add(x);
+        }
+        boolean none = shown.isEmpty() && !q.isEmpty() && (!all.isEmpty() || !work.isEmpty());
+        boolean noWork = workTab && q.isEmpty() && work.isEmpty();
+        empty.setVisibility(none || noWork ? VISIBLE : GONE);
+        empty.setText(noWork ? (workPaused ? "Tus apps de trabajo están en pausa" : "No hay apps de trabajo") : "No encontré esa app");
         webRow.setVisibility(none && !pick ? VISIBLE : GONE);
         webText.setText("Buscar «" + search.getText().toString().trim() + "» en internet");
-        fillSuggestions(q.isEmpty() && !pick && Prefs.drawerSuggest(act));
+        workRow.setVisibility(workTab && q.isEmpty() ? VISIBLE : GONE);
+        workText.setText(workPaused ? "Reanudar apps de trabajo" : "Pausar apps de trabajo");
+        fillSuggestions(q.isEmpty() && !pick && !workTab && Prefs.drawerSuggest(act));
         adapter.notifyDataSetChanged();
         if (animate) grid.scheduleLayoutAnimation();
     }
@@ -380,9 +465,15 @@ class Drawer extends FrameLayout {
             act.finish();
             return;
         }
+        if (x.work() && workPaused) {
+            Sound.play(from != null ? from : this, Sound.TAP);
+            setWorkPaused(false);
+            return;
+        }
         Sound.play(from != null ? from : this, Sound.OPEN);
-        Prefs.countLaunch(act, x.pkg);
-        MainActivity.launch(act, x.pkg, from);
+        // Las sugerencias cuentan por paquete; las de trabajo no se mezclan con tus apps
+        if (!x.work()) Prefs.countLaunch(act, x.pkg);
+        MainActivity.launch(act, x, from);
         postDelayed(host::closeDrawer, 350);
     }
 
@@ -503,8 +594,17 @@ class Drawer extends FrameLayout {
             }
             App x = shown.get(i);
             label.setText(x.label);
-            icon.setImageDrawable(icon(act, x.pkg));
-            IconEngine.clip(icon, x.pkg);
+            if (x.work()) {
+                // Sin recortar, para que no se corte el maletín de la esquina
+                icon.setImageDrawable(x.badged);
+                icon.setClipToOutline(false);
+                icon.setOutlineProvider(android.view.ViewOutlineProvider.BACKGROUND);
+            } else {
+                icon.setImageDrawable(icon(act, x.pkg));
+                IconEngine.clip(icon, x.pkg);
+            }
+            // En pausa se ven apagadas
+            cell.setAlpha(x.work() && workPaused ? 0.45f : 1f);
             return cell;
         }
     }

@@ -286,6 +286,16 @@ final class Icons {
         p.lineTo(12f, 20.5f);
     };
 
+    static final Shape WORK = p -> {
+        p.addRoundRect(3.5f, 7.5f, 20.5f, 19.5f, 2.5f, 2.5f, Path.Direction.CW);
+        p.moveTo(9f, 7.5f);
+        p.lineTo(9f, 4.5f);
+        p.lineTo(15f, 4.5f);
+        p.lineTo(15f, 7.5f);
+        p.moveTo(3.5f, 12.5f);
+        p.lineTo(20.5f, 12.5f);
+    };
+
     static final Shape WALL = p -> {
         p.addRect(3.5f, 5f, 20.5f, 19f, Path.Direction.CW);
         p.moveTo(3.5f, 9.7f);
