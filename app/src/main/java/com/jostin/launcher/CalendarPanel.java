@@ -130,7 +130,7 @@ class CalendarPanel extends LinearLayout {
                     && today.get(Calendar.MONTH) == d.get(Calendar.MONTH)
                     && today.get(Calendar.DAY_OF_MONTH) == day;
             int col = (offset + day - 1) % 7;
-            int color = isToday ? Ui.INK : (col >= 5 ? 0xFF8C9099 : Ui.TEXT);
+            int color = isToday ? Theme.onAccent : (col >= 5 ? 0xFF8C9099 : Ui.TEXT);
             grid.addView(cell(c, String.valueOf(day), color, cell, isToday, isToday ? Ui.SEMIBOLD : Ui.REGULAR));
         }
         if (animate) {
@@ -145,7 +145,7 @@ class CalendarPanel extends LinearLayout {
         TextView t = Ui.text(c, s, 14, color, tf);
         t.setGravity(Gravity.CENTER);
         if (mark) {
-            t.setBackground(Ui.fill(c, 0xFFF5F6F8, size / 2f / c.getResources().getDisplayMetrics().density));
+            t.setBackground(Ui.fill(c, Theme.accent, size / 2f / c.getResources().getDisplayMetrics().density));
         }
         GridLayout.LayoutParams lp = new GridLayout.LayoutParams();
         lp.width = size;

@@ -27,7 +27,7 @@ class Segmented extends FrameLayout {
         setPadding(pad, pad, pad, pad);
 
         pill = new View(c);
-        pill.setBackground(Ui.fill(c, 0xFFF5F6F8, 16));
+        pill.setBackground(Ui.fill(c, Theme.accent, 16));
         addView(pill, new LayoutParams(0, -1));
 
         LinearLayout row = new LinearLayout(c);
@@ -62,7 +62,7 @@ class Segmented extends FrameLayout {
         selected = i;
         for (int k = 0; k < labels.length; k++) {
             labels[k].animate().cancel();
-            labels[k].setTextColor(k == i ? Ui.INK : Ui.TEXT);
+            labels[k].setTextColor(k == i ? Theme.onAccent : Ui.TEXT);
         }
         post(() -> {
             int inner = getWidth() - pad * 2;

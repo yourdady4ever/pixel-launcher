@@ -26,6 +26,8 @@ final class Ui {
     static final int INK = 0xFF0E0F12;
 
     static Typeface DISPLAY, THIN, LIGHT, REGULAR, MEDIUM, SEMIBOLD;
+    static Typeface[] CLOCK_FONTS;
+    static final String[] CLOCK_FONT_NAMES = {"Michroma", "Inter", "Syncopate", "Bodoni", "Orbitron"};
 
     private Ui() {}
 
@@ -37,6 +39,11 @@ final class Ui {
         REGULAR = font(c, "inter_regular");
         MEDIUM = font(c, "inter_medium");
         SEMIBOLD = font(c, "inter_semibold");
+        CLOCK_FONTS = new Typeface[]{DISPLAY, THIN, font(c, "syncopate"), font(c, "bodoni"), font(c, "orbitron")};
+    }
+
+    static Typeface clockFont(int i) {
+        return CLOCK_FONTS[Math.max(0, Math.min(CLOCK_FONTS.length - 1, i))];
     }
 
     private static Typeface font(Context c, String name) {

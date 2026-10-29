@@ -310,17 +310,19 @@ final class Icons {
      * Ícono de una app dentro de un círculo. En modo monocromo usa la capa monocroma de la app
      * (Android 13+) en blanco sobre vidrio; si la app no la tiene, usa su ícono en gris.
      */
-    static Drawable app(Context c, String pkg, boolean mono) {
+    /** Estilos: 0 monocromo blanco, 1 originales, 2 en el color de acento. */
+    static Drawable app(Context c, String pkg, int style) {
         Drawable icon;
         try {
             icon = c.getPackageManager().getApplicationIcon(pkg);
         } catch (PackageManager.NameNotFoundException e) {
             return null;
         }
-        if (!mono) return icon;
+        if (style == 1) return icon;
+        int color = style == 2 ? Theme.accent : 0xFFF2F3F5;
         if (android.os.Build.VERSION.SDK_INT >= 33 && icon instanceof AdaptiveIconDrawable) {
             Drawable m = ((AdaptiveIconDrawable) icon).getMonochrome();
-            if (m != null) return new Mono(m.mutate());
+            if (m != null) return new Mono(m.mutate(), color, style == 2);
         }
         Drawable g = icon.mutate();
         ColorMatrix cm = new ColorMatrix();
@@ -336,12 +338,15 @@ final class Icons {
         private final Paint ring = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Path clip = new Path();
 
-        Mono(Drawable layer) {
+        private final int bgAlpha;
+
+        Mono(Drawable layer, int color, boolean tinted) {
             this.layer = layer;
-            layer.setColorFilter(new PorterDuffColorFilter(0xFFF2F3F5, PorterDuff.Mode.SRC_IN));
-            bg.setColor(0x24FFFFFF);
+            layer.setColorFilter(new PorterDuffColorFilter(color, PorterDuff.Mode.SRC_IN));
+            bg.setColor(tinted ? Ui.alpha(color, 0x2E) : 0x24FFFFFF);
+            bgAlpha = Ui.alphaOf(bg.getColor());
             ring.setStyle(Paint.Style.STROKE);
-            ring.setColor(0x26FFFFFF);
+            ring.setColor(tinted ? Ui.alpha(color, 0x40) : 0x26FFFFFF);
         }
 
         @Override
@@ -367,7 +372,7 @@ final class Icons {
             c.drawCircle(b.exactCenterX(), b.exactCenterY(), r - ring.getStrokeWidth() / 2, ring);
         }
 
-        @Override public void setAlpha(int a) { bg.setAlpha(a * 0x24 / 255); layer.setAlpha(a); }
+        @Override public void setAlpha(int a) { bg.setAlpha(a * bgAlpha / 255); layer.setAlpha(a); }
         @Override public void setColorFilter(ColorFilter cf) {}
         @Override public int getOpacity() { return PixelFormat.TRANSLUCENT; }
     }

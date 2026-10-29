@@ -11,132 +11,159 @@ import java.util.Set;
 final class Prefs {
     static final int SLOTS = 6;
 
-    /** Apps que se bloquean en modo estudio. */
+    /** Apps que se pausan en modo estudio. */
     static final Set<String> DISTRACTIONS = new HashSet<>(Arrays.asList(
-            "com.instagram.android",
-            "com.zhiliaoapp.musically",
-            "com.ss.android.ugc.trill",
-            "com.facebook.katana",
-            "com.facebook.lite",
-            "com.twitter.android",
-            "com.snapchat.android",
-            "com.google.android.youtube",
-            "com.netflix.mediaclient",
-            "com.reddit.frontpage",
-            "com.discord",
-            "com.roblox.client"
-    ));
+            "com.instagram.android", "com.zhiliaoapp.musically", "com.ss.android.ugc.trill",
+            "com.facebook.katana", "com.facebook.lite", "com.twitter.android", "com.snapchat.android",
+            "com.google.android.youtube", "com.netflix.mediaclient", "com.reddit.frontpage",
+            "com.discord", "com.roblox.client"));
 
-    /** Si no has elegido apps, se llenan los canales con estas (si las tienes). */
+    /** Si no has elegido apps, el dock se llena con estas (si las tienes). */
     static final String[] DEFAULT_APPS = {
-            "com.whatsapp",
-            "com.google.android.youtube",
-            "com.android.chrome",
-            "com.google.android.GoogleCamera",
-            "com.spotify.music",
-            "com.instagram.android",
-            "com.google.android.apps.photos",
-            "com.google.android.gm",
-            "com.google.android.apps.maps",
-            "com.roblox.client"
-    };
+            "com.whatsapp", "com.google.android.youtube", "com.android.chrome",
+            "com.google.android.GoogleCamera", "com.spotify.music", "com.instagram.android",
+            "com.google.android.apps.photos", "com.google.android.gm", "com.google.android.apps.maps",
+            "com.roblox.client"};
 
     private Prefs() {}
 
-    private static SharedPreferences sp(Context c) {
+    static SharedPreferences sp(Context c) {
         return c.getSharedPreferences("jostin_os", Context.MODE_PRIVATE);
     }
 
-    static String slot(Context c, int i) {
-        return sp(c).getString("slot_" + i, null);
-    }
+    private static int i(Context c, String k, int d) { return sp(c).getInt(k, d); }
+    private static boolean b(Context c, String k, boolean d) { return sp(c).getBoolean(k, d); }
+    private static String s(Context c, String k, String d) { return sp(c).getString(k, d); }
+    private static void put(Context c, String k, int v) { sp(c).edit().putInt(k, v).apply(); }
+    private static void put(Context c, String k, boolean v) { sp(c).edit().putBoolean(k, v).apply(); }
+    private static void put(Context c, String k, String v) { sp(c).edit().putString(k, v).apply(); }
 
-    static void setSlot(Context c, int i, String pkg) {
-        sp(c).edit().putString("slot_" + i, pkg).apply();
-    }
+    // ---------- Dock ----------
+    static String slot(Context c, int n) { return s(c, "slot_" + n, null); }
+    static void setSlot(Context c, int n, String pkg) { put(c, "slot_" + n, pkg); }
+    static boolean slotsInitialized(Context c) { return b(c, "slots_init", false); }
+    static void markSlotsInitialized(Context c) { put(c, "slots_init", true); }
+    static int dockCount(Context c) { return Math.max(4, Math.min(SLOTS, i(c, "dock_count", SLOTS))); }
+    static void setDockCount(Context c, int v) { put(c, "dock_count", v); }
+    /** 0 monocromo, 1 originales, 2 color de acento. */
+    static int iconStyle(Context c) { return i(c, "icon_style", 0); }
+    static void setIconStyle(Context c, int v) { put(c, "icon_style", v); }
 
-    static boolean slotsInitialized(Context c) {
-        return sp(c).getBoolean("slots_init", false);
-    }
+    static Set<String> hidden(Context c) { return new HashSet<>(sp(c).getStringSet("hidden_apps", new HashSet<>())); }
+    static void setHidden(Context c, Set<String> h) { sp(c).edit().putStringSet("hidden_apps", new HashSet<>(h)).apply(); }
 
-    static void markSlotsInitialized(Context c) {
-        sp(c).edit().putBoolean("slots_init", true).apply();
-    }
+    // ---------- Estudio y pendientes ----------
+    static long studyEnd(Context c) { return sp(c).getLong("study_end", 0); }
+    static void setStudyEnd(Context c, long t) { sp(c).edit().putLong("study_end", t).apply(); }
+    static boolean studying(Context c) { return studyEnd(c) > System.currentTimeMillis(); }
+    static String tasks(Context c) { return s(c, "tasks", "[]"); }
+    static void setTasks(Context c, String json) { put(c, "tasks", json); }
 
-    static long studyEnd(Context c) {
-        return sp(c).getLong("study_end", 0);
-    }
+    // ---------- Sonido ----------
+    static boolean sounds(Context c) { return b(c, "sounds", true); }
+    static void setSounds(Context c, boolean on) { put(c, "sounds", on); }
+    static int volume(Context c) { return i(c, "sound_volume", 70); }
+    static void setVolume(Context c, int v) { put(c, "sound_volume", v); }
+    static boolean haptics(Context c) { return b(c, "haptics", true); }
+    static void setHaptics(Context c, boolean on) { put(c, "haptics", on); }
 
-    static void setStudyEnd(Context c, long t) {
-        sp(c).edit().putLong("study_end", t).apply();
-    }
+    // ---------- Fondo ----------
+    /** 0 escena animada, 1 foto propia. */
+    static int wallKind(Context c) { return i(c, "wall_kind", 0); }
+    static void setWallKind(Context c, int v) { put(c, "wall_kind", v); }
+    static int wallScene(Context c) { return i(c, "wall_scene", i(c, "theme", 0)); }
+    static void setWallScene(Context c, int v) { put(c, "wall_scene", v); }
+    static String wallPhoto(Context c) { return s(c, "wall_photo", null); }
+    static void setWallPhoto(Context c, String id) { put(c, "wall_photo", id); }
+    /** 0 original, 1 puntos, 2 duotono, 3 desenfoque. */
+    static int wallEffect(Context c) { return i(c, "wall_effect", 0); }
+    static void setWallEffect(Context c, int v) { put(c, "wall_effect", v); }
+    /** 0 nada, 1 lluvia, 2 nieve, 3 polvo de luz, 4 estrellas. */
+    static int wallOverlay(Context c) { return i(c, "wall_overlay", 0); }
+    static void setWallOverlay(Context c, int v) { put(c, "wall_overlay", v); }
+    static int wallDim(Context c) { return i(c, "wall_dim", 0); }
+    static void setWallDim(Context c, int v) { put(c, "wall_dim", v); }
+    static boolean animated(Context c) { return b(c, "anim", true); }
+    static void setAnimated(Context c, boolean on) { put(c, "anim", on); }
+    static boolean parallax(Context c) { return b(c, "parallax", true); }
+    static void setParallax(Context c, boolean on) { put(c, "parallax", on); }
+    static boolean smooth(Context c) { return b(c, "fps60", false); }
+    static void setSmooth(Context c, boolean on) { put(c, "fps60", on); }
+    static boolean autoEco(Context c) { return b(c, "auto_eco", true); }
+    static void setAutoEco(Context c, boolean on) { put(c, "auto_eco", on); }
 
-    static boolean studying(Context c) {
-        return studyEnd(c) > System.currentTimeMillis();
-    }
+    // ---------- Color ----------
+    /** 0 del fondo, 1 monocromo, 2 elegido. */
+    static int accentMode(Context c) { return i(c, "accent_mode", 0); }
+    static void setAccentMode(Context c, int v) { put(c, "accent_mode", v); }
+    static int accentColor(Context c) { return i(c, "accent_color", 0xFF7FD4FF); }
+    static void setAccentColor(Context c, int v) { put(c, "accent_color", v); }
+    static boolean tintFromWall(Context c) { return b(c, "tint_wall", true); }
+    static void setTintFromWall(Context c, boolean on) { put(c, "tint_wall", on); }
+    static int glassOpacity(Context c) { return i(c, "glass_opacity", 55); }
+    static void setGlassOpacity(Context c, int v) { put(c, "glass_opacity", v); }
 
-    static String tasks(Context c) {
-        return sp(c).getString("tasks", "[]");
-    }
+    // ---------- Reloj ----------
+    /** 0 espaciado, 1 digital, 2 apilado. */
+    static int clockStyle(Context c) { return i(c, "clock_style", 0); }
+    static void setClockStyle(Context c, int v) { put(c, "clock_style", v); }
+    /** 0 centro, 1 izquierda. */
+    static int clockAlign(Context c) { return i(c, "clock_align", 0); }
+    static void setClockAlign(Context c, int v) { put(c, "clock_align", v); }
+    static int clockFont(Context c) { return i(c, "clock_font", 0); }
+    static void setClockFont(Context c, int v) { put(c, "clock_font", v); }
+    /** 0 automático, 1 color de acento. */
+    static int clockColor(Context c) { return i(c, "clock_color", 0); }
+    static void setClockColor(Context c, int v) { put(c, "clock_color", v); }
+    static String greeting(Context c) { return s(c, "greeting", ""); }
+    static void setGreeting(Context c, String v) { put(c, "greeting", v); }
 
-    static void setTasks(Context c, String json) {
-        sp(c).edit().putString("tasks", json).apply();
-    }
+    // ---------- Inicio ----------
+    static boolean showPanels(Context c) { return b(c, "show_panels", true); }
+    static void setShowPanels(Context c, boolean on) { put(c, "show_panels", on); }
+    static boolean showMusic(Context c) { return b(c, "show_music", true); }
+    static void setShowMusic(Context c, boolean on) { put(c, "show_music", on); }
+    static boolean showWeather(Context c) { return b(c, "show_weather", true); }
+    static void setShowWeather(Context c, boolean on) { put(c, "show_weather", on); }
+    static boolean showDock(Context c) { return b(c, "show_dock", true); }
+    static void setShowDock(Context c, boolean on) { put(c, "show_dock", on); }
+    static boolean onboarded(Context c) { return b(c, "onboarded_v2", false); }
+    static void setOnboarded(Context c) { put(c, "onboarded_v2", true); }
 
-    static boolean sounds(Context c) {
-        return sp(c).getBoolean("sounds", true);
-    }
+    // ---------- Gestos ----------
+    /** Deslizar arriba: 0 cajón, 1 buscar, 2 nada. */
+    static int gUp(Context c) { return i(c, "g_up", 0); }
+    static void setGUp(Context c, int v) { put(c, "g_up", v); }
+    /** Deslizar abajo: 0 panel, 1 notificaciones, 2 nada. */
+    static int gDown(Context c) { return i(c, "g_down", 0); }
+    static void setGDown(Context c, int v) { put(c, "g_down", v); }
+    /** Doble toque: 0 bloquear, 1 linterna, 2 siguiente fondo, 3 nada. */
+    static int gDouble(Context c) { return i(c, "g_double", 0); }
+    static void setGDouble(Context c, int v) { put(c, "g_double", v); }
+    /** Mantener presionado: 0 personalizar, 1 fondos, 2 nada. */
+    static int gLong(Context c) { return i(c, "g_long", 0); }
+    static void setGLong(Context c, int v) { put(c, "g_long", v); }
 
-    static void setSounds(Context c, boolean on) {
-        sp(c).edit().putBoolean("sounds", on).apply();
+    // ---------- Clima ----------
+    static String city(Context c) { return s(c, "w_city", ""); }
+    static void setCity(Context c, String v) {
+        sp(c).edit().putString("w_city", v).remove("w_lat").remove("w_lon").remove("w_cache").putLong("w_time", 0).apply();
     }
+    static String weatherCache(Context c) { return s(c, "w_cache", null); }
+    static long weatherTime(Context c) { return sp(c).getLong("w_time", 0); }
+    static void setWeather(Context c, String json) {
+        sp(c).edit().putString("w_cache", json).putLong("w_time", System.currentTimeMillis()).apply();
+    }
+    static float lat(Context c) { return sp(c).getFloat("w_lat", Float.NaN); }
+    static float lon(Context c) { return sp(c).getFloat("w_lon", Float.NaN); }
+    static void setCoords(Context c, float la, float lo, String name) {
+        sp(c).edit().putFloat("w_lat", la).putFloat("w_lon", lo).putString("w_place", name).apply();
+    }
+    static String place(Context c) { return s(c, "w_place", city(c)); }
 
-    static int theme(Context c) {
-        return sp(c).getInt("theme", 0);
-    }
-
-    static void setTheme(Context c, int t) {
-        sp(c).edit().putInt("theme", t).apply();
-    }
-
-    /** Íconos de apps en estilo monocromo (blanco sobre vidrio). */
-    static boolean monoIcons(Context c) {
-        return sp(c).getBoolean("mono_icons", true);
-    }
-
-    static void setMonoIcons(Context c, boolean on) {
-        sp(c).edit().putBoolean("mono_icons", on).apply();
-    }
-
-    static boolean parallax(Context c) {
-        return sp(c).getBoolean("parallax", true);
-    }
-
-    static void setParallax(Context c, boolean on) {
-        sp(c).edit().putBoolean("parallax", on).apply();
-    }
-
-    static String history(Context c) {
-        return sp(c).getString("calc_history", "[]");
-    }
-
-    static void setHistory(Context c, String json) {
-        sp(c).edit().putString("calc_history", json).apply();
-    }
-
-    static boolean degrees(Context c) {
-        return sp(c).getBoolean("calc_deg", true);
-    }
-
-    static void setDegrees(Context c, boolean on) {
-        sp(c).edit().putBoolean("calc_deg", on).apply();
-    }
-
-    static boolean animated(Context c) {
-        return sp(c).getBoolean("anim", true);
-    }
-
-    static void setAnimated(Context c, boolean on) {
-        sp(c).edit().putBoolean("anim", on).apply();
-    }
+    // ---------- Calculadora ----------
+    static String history(Context c) { return s(c, "calc_history", "[]"); }
+    static void setHistory(Context c, String json) { put(c, "calc_history", json); }
+    static boolean degrees(Context c) { return b(c, "calc_deg", true); }
+    static void setDegrees(Context c, boolean on) { put(c, "calc_deg", on); }
 }

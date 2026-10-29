@@ -82,11 +82,11 @@ public class PendientesActivity extends Screen {
         add.addView(input, new LinearLayout.LayoutParams(0, -2, 1f));
         ImageView plus = new ImageView(this);
         Icons.Line pd = Icons.of(Icons.PLUS);
-        pd.setColor(Ui.INK);
+        pd.setColor(Theme.onAccent);
         plus.setImageDrawable(pd);
         int pp = Ui.dp(this, 12);
         plus.setPadding(pp, pp, pp, pp);
-        plus.setBackground(Ui.fill(this, 0xFFF5F6F8, 22));
+        plus.setBackground(Ui.fill(this, Theme.accent, 22));
         Ui.pressable(plus, 0.86f);
         add.addView(plus, new LinearLayout.LayoutParams(Ui.dp(this, 44), Ui.dp(this, 44)));
         body.addView(add, new LinearLayout.LayoutParams(-1, -2));
@@ -312,9 +312,9 @@ public class PendientesActivity extends Screen {
             progress = checked ? 1f : 0f;
             ring.setStyle(Paint.Style.STROKE);
             ring.setColor(0x80FFFFFF);
-            fill.setColor(0xFFF5F6F8);
+            fill.setColor(Theme.accent);
             tick.setStyle(Paint.Style.STROKE);
-            tick.setColor(Ui.INK);
+            tick.setColor(Theme.onAccent);
             tick.setStrokeCap(Paint.Cap.ROUND);
             tick.setStrokeJoin(Paint.Join.ROUND);
         }

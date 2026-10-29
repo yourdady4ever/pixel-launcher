@@ -44,12 +44,14 @@ final class Sound {
 
     /** Reproduce el sonido y la vibración que le corresponde. */
     static void play(View v, int which) {
-        if (v != null) v.performHapticFeedback(haptic(which));
-        if (v == null || pool == null || ids[which] == 0) return;
-        if (!Prefs.sounds(v.getContext())) return;
+        if (v == null) return;
+        if (Prefs.haptics(v.getContext())) v.performHapticFeedback(haptic(which));
+        if (pool == null || ids[which] == 0 || !Prefs.sounds(v.getContext())) return;
+        float vol = VOL[which] * Prefs.volume(v.getContext()) / 70f;
+        vol = Math.max(0f, Math.min(1f, vol));
         // Las teclas varían un poco de tono para no sonar robóticas
         float rate = which == KEY || which == TAP ? 0.96f + rnd.nextFloat() * 0.08f : 1f;
-        pool.play(ids[which], VOL[which], VOL[which], 1, 0, rate);
+        pool.play(ids[which], vol, vol, 1, 0, rate);
     }
 
     private static int haptic(int which) {

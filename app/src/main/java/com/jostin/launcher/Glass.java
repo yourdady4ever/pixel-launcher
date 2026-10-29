@@ -14,12 +14,14 @@ import android.graphics.drawable.Drawable;
 import android.view.View;
 
 /**
- * Vidrio esmerilado: dibuja el fondo animado que está detrás, muy difuminado,
- * con un tinte oscuro, un brillo suave arriba y un borde de luz.
+ * Vidrio esmerilado: dibuja el fondo que está detrás muy difuminado, con un tinte que sale del
+ * fondo (o neutro), un brillo suave arriba y un borde de luz.
  */
 class Glass extends Drawable {
-    static final int TINT = 0x8C0F1114;
-    static final int TINT_STRONG = 0xB80D0F12;
+    /** Usa el tinte normal del tema. */
+    static final int TINT = 1;
+    /** Usa el tinte fuerte del tema (menús y hojas). */
+    static final int TINT_STRONG = 2;
 
     private final Backdrop backdrop;
     private final float[] radii;
@@ -42,11 +44,9 @@ class Glass extends Drawable {
         this.backdrop = backdrop;
         this.radii = radii;
         this.tint = tint;
-        tintPaint.setColor(backdrop == null ? 0xF0181B20 : tint);
         borderPaint.setStyle(Paint.Style.STROKE);
     }
 
-    /** Pone vidrio como fondo de la vista y la conecta con el fondo animado. */
     static Glass apply(View v, Backdrop b, float radiusDp) {
         return apply(v, b, radiusDp, TINT);
     }
@@ -58,19 +58,24 @@ class Glass extends Drawable {
         return g;
     }
 
+    private int tintColor() {
+        if (tint == TINT) return backdrop == null ? Ui.alpha(Theme.glass, 0xF0) : Theme.glass;
+        if (tint == TINT_STRONG) return backdrop == null ? Ui.alpha(Theme.glassStrong, 0xF5) : Theme.glassStrong;
+        return tint;
+    }
+
     @Override
     protected void onBoundsChange(Rect b) {
         super.onBoundsChange(b);
         rect.set(b);
-        float inset = 0.5f;
         path.reset();
         path.addRoundRect(rect, radii, Path.Direction.CW);
         sheenPaint.setShader(new LinearGradient(0, b.top, 0, b.top + b.height() * 0.5f,
                 0x17FFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP));
         borderPaint.setShader(new LinearGradient(0, b.top, 0, b.bottom,
                 0x52FFFFFF, 0x12FFFFFF, Shader.TileMode.CLAMP));
-        borderPaint.setStrokeWidth(Math.max(1f, b.height() > 0 ? 1.2f : 1f));
-        rect.inset(inset, inset);
+        borderPaint.setStrokeWidth(1.2f);
+        rect.inset(0.6f, 0.6f);
         borderPath.reset();
         borderPath.addRoundRect(rect, radii, Path.Direction.CW);
     }
@@ -83,7 +88,7 @@ class Glass extends Drawable {
         c.clipPath(path);
         Bitmap small = backdrop == null ? null : backdrop.small();
         Object cb = getCallback();
-        if (small != null && cb instanceof View) {
+        if (small != null && !small.isRecycled() && cb instanceof View) {
             View host = (View) cb;
             host.getLocationInWindow(hostLoc);
             backdrop.getLocationInWindow(backLoc);
@@ -97,7 +102,9 @@ class Glass extends Drawable {
             c.drawBitmap(small, 0, 0, blurPaint);
             c.restore();
         }
-        tintPaint.setAlpha((Ui.alphaOf(backdrop == null ? 0xF0181B20 : tint) * alpha) / 255);
+        int tc = tintColor();
+        tintPaint.setColor(tc);
+        tintPaint.setAlpha((Ui.alphaOf(tc) * alpha) / 255);
         c.drawRect(b, tintPaint);
         sheenPaint.setAlpha(alpha);
         c.drawRect(b, sheenPaint);
@@ -106,7 +113,6 @@ class Glass extends Drawable {
         c.drawPath(borderPath, borderPaint);
     }
 
-    /** Escala total de la vista, sumando la de sus padres (por las animaciones de toque). */
     private static float scaleOf(View v) {
         float s = 1f;
         Object p = v;

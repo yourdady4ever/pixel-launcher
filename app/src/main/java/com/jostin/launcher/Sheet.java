@@ -1,27 +1,38 @@
 package com.jostin.launcher;
 
 import android.app.Activity;
+import android.content.Context;
 import android.view.Gravity;
+import android.view.MotionEvent;
+import android.view.VelocityTracker;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowInsets;
 import android.view.animation.AccelerateInterpolator;
 import android.view.animation.DecelerateInterpolator;
+import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
+import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 
 import java.util.ArrayList;
 import java.util.List;
 
-/** Hojas de vidrio que suben desde abajo, en lugar de los diálogos grises de Android. */
+/** Hojas de vidrio que suben desde abajo. Se pueden cerrar arrastrándolas hacia abajo. */
 final class Sheet {
     private static final String TAG = "jostin_sheet";
     static final int DANGER = 0xFFFF8A8A;
 
     interface Value {
         String get();
+    }
+
+    interface TextDone {
+        void done(String text);
     }
 
     static final class Item {
@@ -56,17 +67,19 @@ final class Sheet {
         return new Item(label, icon, action);
     }
 
-    /** Lista de opciones. */
+    static void show(Activity a, Backdrop b, String title, Item... items) {
+        List<Item> l = new ArrayList<>();
+        for (Item i : items) l.add(i);
+        show(a, b, title, l);
+    }
+
     static void show(Activity a, Backdrop b, String title, List<Item> items) {
         LinearLayout card = card(a, b, title);
         for (Item it : items) {
             LinearLayout row = new LinearLayout(a);
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setGravity(Gravity.CENTER_VERTICAL);
-            int px = Ui.dp(a, 10);
-            row.setPadding(px, 0, Ui.dp(a, 14), 0);
-            row.setBackground(Ui.fill(a, 0x00000000, 18));
-
+            row.setPadding(Ui.dp(a, 10), 0, Ui.dp(a, 14), 0);
             if (it.icon != null) {
                 ImageView ic = new ImageView(a);
                 Icons.Line d = Icons.of(it.icon);
@@ -78,12 +91,13 @@ final class Sheet {
                 row.addView(ic, new LinearLayout.LayoutParams(Ui.dp(a, 38), Ui.dp(a, 38)));
             }
             TextView label = Ui.text(a, it.label, 16, it.danger ? DANGER : Ui.TEXT, Ui.MEDIUM);
+            label.setMaxLines(1);
+            label.setEllipsize(android.text.TextUtils.TruncateAt.END);
             LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(0, -2, 1f);
-            llp.leftMargin = Ui.dp(a, 14);
+            llp.leftMargin = Ui.dp(a, it.icon != null ? 14 : 4);
             row.addView(label, llp);
             TextView value = Ui.text(a, it.value != null ? it.value.get() : "", 14, Ui.MUTED, Ui.REGULAR);
             row.addView(value);
-
             Ui.pressable(row, 0.97f);
             row.setOnClickListener(v -> {
                 Sound.play(v, it.keepOpen ? Sound.TOGGLE : Sound.TAP);
@@ -91,20 +105,30 @@ final class Sheet {
                     if (it.action != null) it.action.run();
                     if (it.value != null) value.setText(it.value.get());
                 } else {
-                    dismiss(a, () -> {
-                        if (it.action != null) it.action.run();
-                    });
+                    dismiss(a, it.action);
                 }
             });
             card.addView(row, new LinearLayout.LayoutParams(-1, Ui.dp(a, 58)));
         }
-        present(a, card);
+        present(a, card, 0x80000000);
     }
 
-    static void show(Activity a, Backdrop b, String title, Item... items) {
-        List<Item> l = new ArrayList<>();
-        for (Item i : items) l.add(i);
-        show(a, b, title, l);
+    /** Hoja con contenido propio y desplazable, alta hasta la fracción de pantalla indicada. */
+    static void panel(Activity a, Backdrop b, View header, View content, float maxFraction, int dim) {
+        LinearLayout card = card(a, b, null);
+        if (header != null) card.addView(header, new LinearLayout.LayoutParams(-1, -2));
+        ScrollView sv = new ScrollView(a) {
+            @Override
+            protected void onMeasure(int w, int h) {
+                int max = (int) (a.getResources().getDisplayMetrics().heightPixels * maxFraction);
+                super.onMeasure(w, View.MeasureSpec.makeMeasureSpec(max, View.MeasureSpec.AT_MOST));
+            }
+        };
+        sv.setVerticalScrollBarEnabled(false);
+        sv.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        sv.addView(content);
+        card.addView(sv, new LinearLayout.LayoutParams(-1, -2));
+        present(a, card, dim);
     }
 
     /** Pregunta de sí o no. */
@@ -121,9 +145,8 @@ final class Sheet {
             card.addView(m);
         }
         LinearLayout buttons = new LinearLayout(a);
-        buttons.setOrientation(LinearLayout.HORIZONTAL);
         TextView cancel = button(a, "Cancelar", Ui.SOFT, Ui.TEXT);
-        TextView yes = button(a, ok, danger ? 0xFFE5484D : 0xFFF5F6F8, danger ? 0xFFFFFFFF : Ui.INK);
+        TextView yes = button(a, ok, danger ? 0xFFE5484D : Theme.accent, danger ? 0xFFFFFFFF : Theme.onAccent);
         LinearLayout.LayoutParams l1 = new LinearLayout.LayoutParams(0, Ui.dp(a, 52), 1f);
         l1.rightMargin = Ui.dp(a, 5);
         LinearLayout.LayoutParams l2 = new LinearLayout.LayoutParams(0, Ui.dp(a, 52), 1f);
@@ -141,7 +164,58 @@ final class Sheet {
             Sound.play(v, danger ? Sound.HOLD : Sound.TAP);
             dismiss(a, onOk);
         });
-        present(a, card);
+        present(a, card, 0x80000000);
+    }
+
+    /** Pide un texto (tu ciudad, un saludo...). */
+    static void prompt(Activity a, Backdrop b, String title, String hint, String initial, TextDone done) {
+        LinearLayout card = card(a, b, null);
+        int side = Ui.dp(a, 10);
+        TextView t = Ui.text(a, title, 19, Ui.TEXT, Ui.SEMIBOLD);
+        t.setPadding(side, Ui.dp(a, 6), side, Ui.dp(a, 14));
+        card.addView(t);
+        EditText e = new EditText(a);
+        e.setText(initial);
+        e.setSelection(e.getText().length());
+        e.setHint(hint);
+        e.setHintTextColor(0x66FFFFFF);
+        e.setTextColor(Ui.TEXT);
+        e.setTextSize(17);
+        e.setTypeface(Ui.REGULAR);
+        e.setSingleLine(true);
+        e.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        int p = Ui.dp(a, 16);
+        e.setPadding(p, p, p, p);
+        e.setBackground(Ui.outline(a, Ui.SOFT, 0x33FFFFFF, 16));
+        card.addView(e, new LinearLayout.LayoutParams(-1, -2));
+        TextView ok = button(a, "Guardar", Theme.accent, Theme.onAccent);
+        LinearLayout.LayoutParams olp = new LinearLayout.LayoutParams(-1, Ui.dp(a, 52));
+        olp.topMargin = Ui.dp(a, 14);
+        card.addView(ok, olp);
+        Runnable save = () -> {
+            hideKeyboard(a, e);
+            String v = e.getText().toString().trim();
+            dismiss(a, () -> done.done(v));
+        };
+        ok.setOnClickListener(v -> {
+            Sound.play(v, Sound.TAP);
+            save.run();
+        });
+        e.setOnEditorActionListener((v, act, ev) -> {
+            save.run();
+            return true;
+        });
+        present(a, card, 0x80000000);
+        e.postDelayed(() -> {
+            e.requestFocus();
+            InputMethodManager im = (InputMethodManager) a.getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (im != null) im.showSoftInput(e, 0);
+        }, 250);
+    }
+
+    static void hideKeyboard(Activity a, View v) {
+        InputMethodManager im = (InputMethodManager) a.getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (im != null) im.hideSoftInputFromWindow(v.getWindowToken(), 0);
     }
 
     static TextView button(Activity a, String s, int fill, int color) {
@@ -167,15 +241,18 @@ final class Sheet {
         p.setAlpha(0f);
         p.setTranslationY(-Ui.dp(a, 30));
         p.animate().alpha(1f).translationY(0).setDuration(380).setInterpolator(new DecelerateInterpolator(2f))
-                .withEndAction(() -> p.animate().alpha(0f).translationY(-Ui.dp(a, 16)).setStartDelay(2200)
+                .withEndAction(() -> p.animate().alpha(0f).translationY(-Ui.dp(a, 16)).setStartDelay(2400)
                         .setDuration(300).withEndAction(() -> content.removeView(p)).start())
                 .start();
     }
 
-    /** Cierra la hoja abierta. Devuelve true si había una. */
-    static boolean dismissTop(Activity a) {
+    static boolean isOpen(Activity a) {
         ViewGroup content = a.findViewById(android.R.id.content);
-        if (content.findViewWithTag(TAG) == null) return false;
+        return content.findViewWithTag(TAG) != null;
+    }
+
+    static boolean dismissTop(Activity a) {
+        if (!isOpen(a)) return false;
         dismiss(a, null);
         return true;
     }
@@ -189,14 +266,12 @@ final class Sheet {
         card.setPadding(p, Ui.dp(a, 10), p, Ui.dp(a, 16));
         Glass.apply(card, b, 30, Glass.TINT_STRONG);
         card.setClickable(true);
-
         View handle = new View(a);
         handle.setBackground(Ui.fill(a, 0x40FFFFFF, 3));
         LinearLayout.LayoutParams hlp = new LinearLayout.LayoutParams(Ui.dp(a, 38), Ui.dp(a, 4));
         hlp.gravity = Gravity.CENTER_HORIZONTAL;
         hlp.bottomMargin = Ui.dp(a, 12);
         card.addView(handle, hlp);
-
         if (title != null) {
             TextView t = Ui.label(a, title);
             t.setPadding(Ui.dp(a, 10), 0, 0, Ui.dp(a, 8));
@@ -205,7 +280,7 @@ final class Sheet {
         return card;
     }
 
-    private static void present(Activity a, LinearLayout card) {
+    private static void present(Activity a, LinearLayout card, int dimColor) {
         ViewGroup content = a.findViewById(android.R.id.content);
         View old = content.findViewWithTag(TAG);
         if (old != null) content.removeView(old);
@@ -213,23 +288,78 @@ final class Sheet {
         FrameLayout overlay = new FrameLayout(a);
         overlay.setTag(TAG);
         View dim = new View(a);
-        dim.setBackgroundColor(0x80000000);
-        dim.setOnClickListener(v -> dismiss(a, null));
+        dim.setBackgroundColor(dimColor);
+        dim.setOnClickListener(v -> {
+            Sound.play(v, Sound.BACK);
+            hideKeyboard(a, v);
+            dismiss(a, null);
+        });
         overlay.addView(dim, new FrameLayout.LayoutParams(-1, -1));
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM);
         int m = Ui.dp(a, 10);
         lp.leftMargin = lp.rightMargin = m;
         lp.bottomMargin = bottomInset(content) + m;
         overlay.addView(card, lp);
+        // Si sale el teclado, la hoja sube con él
+        overlay.setOnApplyWindowInsetsListener((v, in) -> {
+            int bottom = in.getSystemWindowInsetBottom();
+            ((FrameLayout.LayoutParams) card.getLayoutParams()).bottomMargin = bottom + m;
+            card.requestLayout();
+            return in;
+        });
         content.addView(overlay, new FrameLayout.LayoutParams(-1, -1));
+        overlay.requestApplyInsets();
+        dragToDismiss(a, card);
 
         dim.setAlpha(0f);
         dim.animate().alpha(1f).setDuration(240).start();
-        card.setTranslationY(Ui.dp(a, 520));
-        card.animate().translationY(0).setDuration(420).setInterpolator(new DecelerateInterpolator(2.6f)).start();
+        card.setTranslationY(Ui.dp(a, 600));
+        card.animate().translationY(0).setDuration(440).setInterpolator(new DecelerateInterpolator(2.6f)).start();
     }
 
-    private static void dismiss(Activity a, Runnable after) {
+    /** Arrastrar la parte de arriba de la hoja hacia abajo la cierra. */
+    private static void dragToDismiss(Activity a, LinearLayout card) {
+        final float[] start = new float[2];
+        final boolean[] dragging = {false};
+        final VelocityTracker[] vt = {null};
+        int zone = Ui.dp(a, 56);
+        card.setOnTouchListener((v, e) -> {
+            switch (e.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    if (e.getY() > zone) return false;
+                    start[0] = e.getRawY();
+                    start[1] = card.getTranslationY();
+                    dragging[0] = true;
+                    vt[0] = VelocityTracker.obtain();
+                    vt[0].addMovement(e);
+                    return true;
+                case MotionEvent.ACTION_MOVE:
+                    if (!dragging[0]) return false;
+                    vt[0].addMovement(e);
+                    card.setTranslationY(Math.max(0, start[1] + e.getRawY() - start[0]));
+                    return true;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    if (!dragging[0]) return false;
+                    dragging[0] = false;
+                    vt[0].addMovement(e);
+                    vt[0].computeCurrentVelocity(1000);
+                    float vy = vt[0].getYVelocity();
+                    vt[0].recycle();
+                    if (card.getTranslationY() > card.getHeight() * 0.25f || vy > 1400) {
+                        Sound.play(card, Sound.BACK);
+                        dismiss(a, null);
+                    } else {
+                        card.animate().translationY(0).setDuration(280).setInterpolator(new DecelerateInterpolator(2f)).start();
+                    }
+                    return true;
+                default:
+                    return false;
+            }
+        });
+    }
+
+    static void dismiss(Activity a, Runnable after) {
         ViewGroup content = a.findViewById(android.R.id.content);
         View overlay = content.findViewWithTag(TAG);
         if (overlay == null) {

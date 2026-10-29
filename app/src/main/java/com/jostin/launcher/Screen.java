@@ -40,8 +40,10 @@ abstract class Screen extends Activity {
         Ui.init(this);
         Sound.init(this);
         Ui.edgeToEdge(this, false);
-        backdrop = new Backdrop(this, Prefs.theme(this));
-        backdrop.setDim(dim());
+        Theme.recompute(this);
+        backdrop = new Backdrop(this);
+        backdrop.setScreenDim(dim());
+        backdrop.useCurrent();
 
         root = new FrameLayout(this);
         root.addView(backdrop, new FrameLayout.LayoutParams(-1, -1));
@@ -126,6 +128,7 @@ abstract class Screen extends Activity {
         super.onStart();
         backdrop.setAnimated(Prefs.animated(this));
         backdrop.setParallax(Prefs.parallax(this));
+        backdrop.setSmooth(Prefs.smooth(this));
         backdrop.setRunning(true);
     }
 

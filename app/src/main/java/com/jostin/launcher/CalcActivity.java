@@ -245,8 +245,8 @@ public class CalcActivity extends Screen {
                 tf = Ui.MEDIUM;
                 color = 0xFFD9DCE1;
             } else if (id.equals("=")) {
-                fill = 0xFFF5F6F8;
-                color = Ui.INK;
+                fill = Theme.accent;
+                color = Theme.onAccent;
                 size = 30;
                 tf = Ui.LIGHT;
             } else if (OPS.contains(id)) {
@@ -285,8 +285,8 @@ public class CalcActivity extends Screen {
         }
 
         void setActive(boolean on) {
-            setBackground(on ? Ui.fill(getContext(), 0xFFF5F6F8, 16) : Ui.outline(getContext(), 0x0FFFFFFF, 0x14FFFFFF, 16));
-            label.setTextColor(on ? Ui.INK : 0xFFD9DCE1);
+            setBackground(on ? Ui.fill(getContext(), Theme.accent, 16) : Ui.outline(getContext(), 0x0FFFFFFF, 0x14FFFFFF, 16));
+            label.setTextColor(on ? Theme.onAccent : 0xFFD9DCE1);
         }
 
         /** Cambia la etiqueta con un fundido rápido (para 2nd). */
