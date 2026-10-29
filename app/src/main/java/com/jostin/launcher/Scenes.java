@@ -75,29 +75,29 @@ final class Scenes {
 
         @Override
         void prepare() {
-            int top = day ? 0xFFCFCFCF : 0xFF050505;
-            int bottom = day ? 0xFF8A8A8A : 0xFF1C1C1E;
+            int top = day ? 0xFFD4D4D4 : 0xFF0A0A0B;
+            int bottom = day ? 0xFF9A9A9A : 0xFF1E1E21;
             sky = new LinearGradient(0, 0, 0, h, top, bottom, Shader.TileMode.CLAMP);
             fills = new LinearGradient[LAYERS];
             for (int i = 0; i < LAYERS; i++) {
                 float f = i / (float) (LAYERS - 1);
-                int a = day ? lerp(0xFFBDBDBD, 0xFF1E1E1E, f) : lerp(0xFF2E2E30, 0xFF050505, f);
-                int b = day ? lerp(0xFF8E8E8E, 0xFF050505, f) : lerp(0xFF141415, 0xFF000000, f);
+                int a = day ? lerp(0xFFC4C4C4, 0xFF262626, f) : lerp(0xFF3C3C40, 0xFF0B0B0C, f);
+                int b = day ? lerp(0xFF8A8A8A, 0xFF050505, f) : lerp(0xFF121214, 0xFF000000, f);
                 float y0 = h * (0.42f + 0.09f * i);
-                fills[i] = new LinearGradient(0, y0 - h * 0.08f, 0, h, a, b, Shader.TileMode.CLAMP);
+                fills[i] = new LinearGradient(0, y0 - h * 0.06f, 0, y0 + h * 0.35f, a, b, Shader.TileMode.CLAMP);
             }
-            crest.setStrokeWidth(Math.max(1f, w / 600f));
+            crest.setStrokeWidth(Math.max(1f, w / 380f));
         }
 
         @Override
         void draw(Canvas c, float t) {
             paint.setShader(sky);
             c.drawRect(0, 0, w, h, paint);
-            int steps = 48;
+            int steps = 56;
             for (int i = 0; i < LAYERS; i++) {
                 float base = h * (0.42f + 0.09f * i);
-                float amp1 = h * (0.045f - i * 0.003f);
-                float amp2 = h * 0.018f;
+                float amp1 = h * (0.05f - i * 0.003f);
+                float amp2 = h * 0.02f;
                 float k1 = (float) (Math.PI * 2 / (w * (1.6f - i * 0.12f)));
                 float k2 = (float) (Math.PI * 2 / (w * 0.7f));
                 float s1 = 0.18f + i * 0.04f, s2 = 0.11f + i * 0.03f;
@@ -114,7 +114,12 @@ final class Scenes {
                 path.close();
                 paint.setShader(fills[i]);
                 c.drawPath(path, paint);
-                crest.setColor(day ? 0x30FFFFFF : 0x1FFFFFFF);
+                // Luz que recorre la cresta de izquierda a derecha, distinta en cada capa
+                float sweep = (float) ((Math.sin(t * 0.12f + i * 1.3f) * 0.5 + 0.5) * w);
+                int peak = day ? (0x30 + i * 0x0C) : (0x22 + i * 0x08);
+                crest.setShader(new LinearGradient(sweep - w * 0.7f, 0, sweep + w * 0.7f, 0,
+                        new int[]{0x00FFFFFF, Ui.alpha(0xFFFFFF, Math.min(0xA0, peak)), 0x00FFFFFF},
+                        null, Shader.TileMode.CLAMP));
                 c.drawPath(path, crest);
             }
             paint.setShader(null);
@@ -248,34 +253,49 @@ final class Scenes {
         }
     }
 
-    /** Franjas rojas inclinadas que se deslizan. */
+    /** Placas rojas inclinadas, con brillo diagonal que se mueve y un borde de luz. */
     static final class Red extends Scene {
-        private final Path stripe = new Path();
-        private LinearGradient red, shade;
+        private final Path slab = new Path();
+        private final Paint edge = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private LinearGradient red, red2, shade;
+
+        Red() {
+            edge.setStyle(Paint.Style.STROKE);
+        }
 
         @Override boolean light() { return false; }
 
         @Override
         void prepare() {
-            red = new LinearGradient(0, h * 0.1f, 0, h * 0.8f, 0xFFE3141C, 0xFF3A0004, Shader.TileMode.CLAMP);
-            shade = new LinearGradient(0, h * 0.55f, 0, h, 0x00000000, 0xFF000000, Shader.TileMode.CLAMP);
+            red = new LinearGradient(0, 0, 0, h * 0.85f, 0xFFF0242C, 0xFF3D0005, Shader.TileMode.CLAMP);
+            red2 = new LinearGradient(0, 0, 0, h * 0.85f, 0xFFC8101A, 0xFF2A0003, Shader.TileMode.CLAMP);
+            shade = new LinearGradient(0, h * 0.5f, 0, h, 0x00000000, 0xF2000000, Shader.TileMode.CLAMP);
+            edge.setStrokeWidth(Math.max(1f, w / 420f));
         }
 
         @Override
         void draw(Canvas c, float t) {
-            c.drawColor(0xFF070707);
-            float sw = w / 3.2f;
-            float slant = h * 0.18f;
-            float shift = (t * w / 60f) % sw;
-            paint.setShader(red);
-            for (float x = -sw * 2 + shift; x < w + sw; x += sw) {
-                stripe.reset();
-                stripe.moveTo(x + slant, 0);
-                stripe.lineTo(x + sw - 4 + slant, 0);
-                stripe.lineTo(x + sw - 4, h);
-                stripe.lineTo(x, h);
-                stripe.close();
-                c.drawPath(stripe, paint);
+            c.drawColor(0xFF050505);
+            float sw = w / 3.6f, gap = w / 34f;
+            float slant = h * 0.16f;
+            float drift = (t * w / 90f) % (sw + gap);
+            int k = 0;
+            for (float x = -(sw + gap) * 2 + drift; x < w + sw; x += sw + gap, k++) {
+                slab.reset();
+                slab.moveTo(x + slant, 0);
+                slab.lineTo(x + sw + slant, 0);
+                slab.lineTo(x + sw, h);
+                slab.lineTo(x, h);
+                slab.close();
+                paint.setShader((k & 1) == 0 ? red : red2);
+                c.drawPath(slab, paint);
+                // Brillo diagonal dentro de la placa
+                float gy = (float) ((Math.sin(t * 0.25f + k * 0.9f) * 0.5 + 0.5) * h * 0.6f);
+                paint.setShader(new LinearGradient(x + slant, gy - h * 0.2f, x, gy + h * 0.2f,
+                        new int[]{0x00FFFFFF, 0x2EFFFFFF, 0x00FFFFFF}, null, Shader.TileMode.CLAMP));
+                c.drawPath(slab, paint);
+                edge.setShader(new LinearGradient(0, 0, 0, h * 0.7f, 0x99FF7A7A, 0x00FF7A7A, Shader.TileMode.CLAMP));
+                c.drawLine(x + slant, 0, x, h, edge);
             }
             paint.setShader(shade);
             c.drawRect(0, 0, w, h, paint);

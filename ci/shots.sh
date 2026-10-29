@@ -19,7 +19,9 @@ start --ei theme 1; snap 02_inicio_niebla 4
 start --ei theme 2; snap 03_inicio_noche 4
 start --ei theme 3; snap 04_inicio_panal 4
 start --ei theme 4; snap 05_inicio_rojo 4
-start --ei theme 0 --es shot picker; snap 06_selector 4
+start --ei theme 2 --es shot picker; snap 06_selector 5
+back
+start --ei theme 0
 back
 start --es shot calendar; snap 07_calendario 4
 back
@@ -49,4 +51,5 @@ adb pull /sdcard/entrada.mp4 "$OUT/entrada.mp4" || true
 
 adb logcat -d -b crash > "$OUT/crash.txt" || true
 adb logcat -d | grep -iE "jostin|AndroidRuntime|FATAL" > "$OUT/log.txt" || true
+find "$OUT" -type f -size 0 -delete
 ls -la "$OUT"

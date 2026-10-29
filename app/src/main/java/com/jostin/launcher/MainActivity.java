@@ -708,6 +708,8 @@ public class MainActivity extends Activity {
     }
 
     private void closeOverlay() {
+        bottomBox.animate().alpha(1f).translationY(0).setStartDelay(0).setDuration(360)
+                .setInterpolator(new DecelerateInterpolator(2f)).start();
         overlay.animate().alpha(0f).setStartDelay(0).setDuration(200).withEndAction(() -> {
             overlay.setVisibility(View.GONE);
             overlay.removeAllViews();
@@ -744,7 +746,7 @@ public class MainActivity extends Activity {
             dots.addView(dot, lp);
             dotViews[k] = dot;
         }
-        box.addView(dots);
+        box.addView(dots, new LinearLayout.LayoutParams(-2, -2));
 
         int cardW = Ui.dp(this, 150), cardH = Ui.dp(this, 270);
         CoverFlow flow = new CoverFlow(this, cardW, Ui.dp(this, 2));
@@ -796,7 +798,10 @@ public class MainActivity extends Activity {
         name.setText(Scenes.NAMES[current].toUpperCase(ES));
 
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(-1, -2, Gravity.CENTER);
-        showOverlay(box, lp, 0x8C000000);
+        lp.topMargin = Ui.dp(this, 60);
+        showOverlay(box, lp, 0x99000000);
+        // Mientras se elige fondo, los paneles y el dock se apartan
+        bottomBox.animate().alpha(0f).translationY(Ui.dp(this, 40)).setStartDelay(0).setDuration(260).start();
     }
 
     private void showSettings() {
