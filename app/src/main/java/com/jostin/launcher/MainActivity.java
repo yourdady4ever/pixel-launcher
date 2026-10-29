@@ -114,7 +114,7 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
         }
     };
 
-    /** El perfil de trabajo se pausó, se reanudó, se creó o se borró. */
+    /** El perfil de trabajo se pausó, se reanudó, se creó o se borró, o el espacio privado se abrió o se cerró. */
     private final BroadcastReceiver profiles = new BroadcastReceiver() {
         @Override
         public void onReceive(Context c, Intent i) {
@@ -171,7 +171,12 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
         wf.addAction(Intent.ACTION_MANAGED_PROFILE_AVAILABLE);
         wf.addAction(Intent.ACTION_MANAGED_PROFILE_UNAVAILABLE);
         wf.addAction(Intent.ACTION_MANAGED_PROFILE_UNLOCKED);
-        registerReceiver(profiles, wf);
+        // Espacio privado: Android 15 avisa con estas (el proyecto compila con 34, por eso van escritas)
+        wf.addAction("android.intent.action.PROFILE_AVAILABLE");
+        wf.addAction("android.intent.action.PROFILE_UNAVAILABLE");
+        // En Android 14 esas dos aún no son del sistema y sin la bandera Android cerraría Jostin
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(profiles, wf, Context.RECEIVER_NOT_EXPORTED);
+        else registerReceiver(profiles, wf);
         LauncherApps la = getSystemService(LauncherApps.class);
         if (la != null) la.registerCallback(workApps, handler);
         handleDemo(getIntent());
@@ -1252,6 +1257,15 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
 
     @Override
     public void appActions(Drawer.App app, View from) {
+        if (app.priv) {
+            Sheet.show(this, backdrop, app.label + " · privado",
+                    Sheet.item("Información de la app", Icons.INFO, () -> WorkApps.info(this, app)),
+                    Sheet.item("Bloquear espacio privado", Icons.LOCK, () -> {
+                        if (WorkApps.setPrivateLocked(this, true)) Sheet.pill(this, backdrop, "Espacio privado bloqueado");
+                    }),
+                    Sheet.item("Desinstalar", Icons.TRASH, () -> uninstall(app.pkg, app.user)).danger());
+            return;
+        }
         if (app.work()) {
             // Inicio, dock y ocultas guardan solo el paquete: con una de trabajo se confundirían con la tuya
             Sheet.show(this, backdrop, app.label + " · trabajo",

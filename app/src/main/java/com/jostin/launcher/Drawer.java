@@ -55,6 +55,8 @@ class Drawer extends FrameLayout {
         final UserHandle user;
         final ComponentName comp;
         Drawable badged;
+        /** Del espacio privado (también tiene perfil, pero no se pausa: se bloquea). */
+        boolean priv;
 
         App(String label, String pkg) {
             this(label, pkg, null, null);
@@ -81,6 +83,7 @@ class Drawer extends FrameLayout {
 
     private static List<App> cache;
     private static List<App> workCache = new ArrayList<>();
+    private static List<App> privateCache = new ArrayList<>();
     private static final Map<String, Drawable> iconCache = new HashMap<>();
     private static int iconStyleCached = -1;
     private static final Handler main = new Handler(Looper.getMainLooper());
@@ -88,6 +91,7 @@ class Drawer extends FrameLayout {
     static void invalidateApps() {
         cache = null;
         workCache = new ArrayList<>();
+        privateCache = new ArrayList<>();
         iconCache.clear();
     }
 
@@ -121,6 +125,7 @@ class Drawer extends FrameLayout {
                 if (d != null) pre.put(x.pkg, d);
             }
             List<App> work = WorkApps.load(app);
+            List<App> privList = WorkApps.loadPrivate(app);
             main.post(() -> {
                 if (iconStyleCached == style || iconStyleCached == -1) {
                     iconStyleCached = style;
@@ -130,6 +135,7 @@ class Drawer extends FrameLayout {
                 }
                 cache = out;
                 workCache = work;
+                privateCache = privList;
                 l.loaded(out);
             });
         }).start();
@@ -167,6 +173,11 @@ class Drawer extends FrameLayout {
     private final View workRow;
     private final TextView workText;
     private boolean workPaused = false;
+    private final List<App> priv = new ArrayList<>();
+    private final View privBox, privScroll;
+    private final LinearLayout privApps;
+    private final TextView privText;
+    private boolean hasPrivate = false, privLocked = true;
     private final Adapter adapter = new Adapter();
     private final GridView grid;
     private final EditText search;
@@ -290,6 +301,42 @@ class Drawer extends FrameLayout {
         suggestRow.setPadding(0, Ui.dp(a, 16), 0, Ui.dp(a, 4));
         column.addView(suggestRow, new LinearLayout.LayoutParams(-1, -2));
 
+        // Espacio privado: bloqueado solo se ve el candado; desbloqueado, sus apps en una fila
+        LinearLayout pb = new LinearLayout(a);
+        pb.setOrientation(LinearLayout.VERTICAL);
+        pb.setPadding(wp, wp, wp, wp);
+        Glass.apply(pb, b, 20);
+        LinearLayout ph = new LinearLayout(a);
+        ph.setGravity(Gravity.CENTER_VERTICAL);
+        ImageView pi = new ImageView(a);
+        pi.setImageDrawable(Icons.of(Icons.LOCK));
+        ph.addView(pi, new LinearLayout.LayoutParams(Ui.dp(a, 20), Ui.dp(a, 20)));
+        TextView pt = Ui.text(a, "Espacio privado", 15, Ui.TEXT, Ui.MEDIUM);
+        LinearLayout.LayoutParams ptl = new LinearLayout.LayoutParams(0, -2, 1f);
+        ptl.leftMargin = Ui.dp(a, 12);
+        ph.addView(pt, ptl);
+        privText = Ui.text(a, "", 14, Ui.MUTED, Ui.REGULAR);
+        ph.addView(privText);
+        Ui.pressable(ph, 0.97f);
+        ph.setOnClickListener(v -> {
+            Sound.play(v, Sound.TOGGLE);
+            setPrivateLocked(!privLocked);
+        });
+        pb.addView(ph, new LinearLayout.LayoutParams(-1, -2));
+        android.widget.HorizontalScrollView ps = new android.widget.HorizontalScrollView(a);
+        ps.setHorizontalScrollBarEnabled(false);
+        privApps = new LinearLayout(a);
+        ps.addView(privApps);
+        LinearLayout.LayoutParams psl = new LinearLayout.LayoutParams(-1, -2);
+        psl.topMargin = Ui.dp(a, 14);
+        pb.addView(ps, psl);
+        privScroll = ps;
+        pb.setVisibility(GONE);
+        privBox = pb;
+        LinearLayout.LayoutParams pbl = new LinearLayout.LayoutParams(-1, -2);
+        pbl.topMargin = Ui.dp(a, 12);
+        column.addView(pb, pbl);
+
         grid = new GridView(a);
         grid.setNumColumns(4);
         grid.setVerticalSpacing(Ui.dp(a, 12));
@@ -351,8 +398,31 @@ class Drawer extends FrameLayout {
             workPaused = hasWork && WorkApps.paused(act);
             tabs.setVisibility(hasWork ? VISIBLE : GONE);
             if (!hasWork && tabs.selected() == 1) tabs.select(0, false);
+            // Se revisa cada vez: si Android lo bloqueó (al apagar la pantalla), no se enseña aunque haya caché
+            priv.clear();
+            UserHandle space = pick ? null : WorkApps.privateSpace(act);
+            hasPrivate = space != null;
+            privLocked = !hasPrivate || WorkApps.locked(act, space);
+            if (!privLocked) priv.addAll(privateCache);
+            fillPrivate();
             filter(animate);
         });
+    }
+
+    private void fillPrivate() {
+        privText.setText(privLocked ? "Desbloquear" : "Bloquear");
+        privApps.removeAllViews();
+        for (App x : priv) privApps.addView(appCell(x, 0xE6FFFFFF), new LinearLayout.LayoutParams(Ui.dp(act, 76), -2));
+        privScroll.setVisibility(priv.isEmpty() ? GONE : VISIBLE);
+    }
+
+    /** Para desbloquear, Android pide tu huella o PIN; MainActivity recarga cuando cambia. */
+    private void setPrivateLocked(boolean on) {
+        if (!WorkApps.setPrivateLocked(act, on)) {
+            Sheet.pill(act, backdrop, "Android no dejó cambiarlo; usa el espacio privado desde Ajustes");
+            return;
+        }
+        if (on) Sheet.pill(act, backdrop, "Espacio privado bloqueado");
     }
 
     /** Pausar no pide nada; para reanudar Android puede pedir tu PIN. MainActivity recarga al cambiar. */
@@ -384,9 +454,10 @@ class Drawer extends FrameLayout {
         if (q.isEmpty()) {
             shown.addAll(workTab ? work : all);
         } else {
-            // Al buscar salen las dos; la de trabajo se distingue por su maletín
+            // Al buscar salen todas; la de trabajo se distingue por su maletín. Las privadas solo si está desbloqueado
             for (App x : all) if (x.key.contains(q)) shown.add(x);
             for (App x : work) if (x.key.contains(q)) shown.add(x);
+            for (App x : priv) if (x.key.contains(q)) shown.add(x);
         }
         boolean none = shown.isEmpty() && !q.isEmpty() && (!all.isEmpty() || !work.isEmpty());
         boolean noWork = workTab && q.isEmpty() && work.isEmpty();
@@ -396,6 +467,7 @@ class Drawer extends FrameLayout {
         webText.setText("Buscar «" + search.getText().toString().trim() + "» en internet");
         workRow.setVisibility(workTab && q.isEmpty() ? VISIBLE : GONE);
         workText.setText(workPaused ? "Reanudar apps de trabajo" : "Pausar apps de trabajo");
+        privBox.setVisibility(hasPrivate && !workTab && q.isEmpty() ? VISIBLE : GONE);
         fillSuggestions(q.isEmpty() && !pick && !workTab && Prefs.drawerSuggest(act));
         adapter.notifyDataSetChanged();
         if (animate) grid.scheduleLayoutAnimation();
@@ -412,32 +484,40 @@ class Drawer extends FrameLayout {
             App x = null;
             for (App y : all) if (y.pkg.equals(pkg)) x = y;
             if (x == null) continue;
-            final App app = x;
-            LinearLayout cell = new LinearLayout(act);
-            cell.setOrientation(LinearLayout.VERTICAL);
-            cell.setGravity(Gravity.CENTER_HORIZONTAL);
-            ImageView icon = new ImageView(act);
-            icon.setImageDrawable(icon(act, pkg));
-            IconEngine.clip(icon, pkg);
-            cell.addView(icon, new LinearLayout.LayoutParams(Ui.dp(act, 56), Ui.dp(act, 56)));
-            TextView label = Ui.text(act, app.label, 12, Theme.accent, Ui.MEDIUM);
-            label.setGravity(Gravity.CENTER);
-            label.setMaxLines(1);
-            label.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-            lp.topMargin = Ui.dp(act, 8);
-            cell.addView(label, lp);
-            Ui.pressable(cell, 0.9f);
-            cell.setOnClickListener(v -> choose(app, icon));
-            cell.setOnLongClickListener(v -> {
-                Sound.play(v, Sound.HOLD);
-                host.appActions(app, v);
-                return true;
-            });
-            suggestRow.addView(cell, new LinearLayout.LayoutParams(0, -2, 1f));
+            suggestRow.addView(appCell(x, Theme.accent), new LinearLayout.LayoutParams(0, -2, 1f));
         }
         for (int k = suggestRow.getChildCount(); k < 4; k++) suggestRow.addView(new View(act), new LinearLayout.LayoutParams(0, 1, 1f));
         suggestRow.setVisibility(VISIBLE);
+    }
+
+    /** Una app suelta, fuera de la cuadrícula (sugerencias y espacio privado). */
+    private LinearLayout appCell(App app, int labelColor) {
+        LinearLayout cell = new LinearLayout(act);
+        cell.setOrientation(LinearLayout.VERTICAL);
+        cell.setGravity(Gravity.CENTER_HORIZONTAL);
+        ImageView icon = new ImageView(act);
+        if (app.work()) {
+            icon.setImageDrawable(app.badged);
+        } else {
+            icon.setImageDrawable(icon(act, app.pkg));
+            IconEngine.clip(icon, app.pkg);
+        }
+        cell.addView(icon, new LinearLayout.LayoutParams(Ui.dp(act, 56), Ui.dp(act, 56)));
+        TextView label = Ui.text(act, app.label, 12, labelColor, Ui.MEDIUM);
+        label.setGravity(Gravity.CENTER);
+        label.setMaxLines(1);
+        label.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.topMargin = Ui.dp(act, 8);
+        cell.addView(label, lp);
+        Ui.pressable(cell, 0.9f);
+        cell.setOnClickListener(v -> choose(app, icon));
+        cell.setOnLongClickListener(v -> {
+            Sound.play(v, Sound.HOLD);
+            host.appActions(app, v);
+            return true;
+        });
+        return cell;
     }
 
     private void webSearch() {
@@ -465,7 +545,7 @@ class Drawer extends FrameLayout {
             act.finish();
             return;
         }
-        if (x.work() && workPaused) {
+        if (x.work() && !x.priv && workPaused) {
             Sound.play(from != null ? from : this, Sound.TAP);
             setWorkPaused(false);
             return;
@@ -644,7 +724,7 @@ class Drawer extends FrameLayout {
                 IconEngine.clip(icon, x.pkg);
             }
             // En pausa se ven apagadas
-            cell.setAlpha(x.work() && workPaused ? 0.45f : 1f);
+            cell.setAlpha(x.work() && !x.priv && workPaused ? 0.45f : 1f);
             return cell;
         }
     }

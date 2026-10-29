@@ -10,6 +10,7 @@ import android.graphics.PixelFormat;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.WindowInsets;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
 
@@ -93,7 +94,8 @@ public class LockService extends AccessibilityService {
         int zone = Prefs.edgeZone(this);
         int width = zone == 0 ? WindowManager.LayoutParams.MATCH_PARENT : getResources().getDisplayMetrics().widthPixels / 2;
         int gravity = Gravity.TOP | (zone == 2 ? Gravity.START : zone == 1 ? Gravity.END : Gravity.CENTER_HORIZONTAL);
-        WindowManager.LayoutParams lp = new WindowManager.LayoutParams(width, Ui.dp(this, 22),
+        // Tapa también la barra de estado: si no, desde la orilla misma salía el panel de Android
+        WindowManager.LayoutParams lp = new WindowManager.LayoutParams(width, statusBarHeight(wm) + Ui.dp(this, 22),
                 WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
                         | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
@@ -102,6 +104,8 @@ public class LockService extends AccessibilityService {
         if (android.os.Build.VERSION.SDK_INT >= 28) {
             lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
         }
+        // Desde Android 11 la ventana se acomoda debajo de las barras si no se le dice lo contrario
+        if (android.os.Build.VERSION.SDK_INT >= 30) lp.setFitInsetsTypes(0);
         try {
             if (strip != null) {
                 wm.updateViewLayout(strip, lp);
@@ -113,6 +117,21 @@ public class LockService extends AccessibilityService {
         } catch (Exception e) {
             strip = null;
         }
+    }
+
+    /** Alto de la barra de estado, contando el hueco de la cámara. */
+    private int statusBarHeight(WindowManager wm) {
+        if (android.os.Build.VERSION.SDK_INT >= 30) {
+            try {
+                int top = wm.getCurrentWindowMetrics().getWindowInsets()
+                        .getInsetsIgnoringVisibility(WindowInsets.Type.statusBars() | WindowInsets.Type.displayCutout()).top;
+                if (top > 0) return top;
+            } catch (Exception ignored) {
+                // se usa el valor de Android
+            }
+        }
+        int id = getResources().getIdentifier("status_bar_height", "dimen", "android");
+        return id > 0 ? getResources().getDimensionPixelSize(id) : Ui.dp(this, 24);
     }
 
     private void removeStrip() {

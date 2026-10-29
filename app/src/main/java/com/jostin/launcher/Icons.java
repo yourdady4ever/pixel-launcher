@@ -296,6 +296,14 @@ final class Icons {
         p.lineTo(20.5f, 12.5f);
     };
 
+    static final Shape LOCK = p -> {
+        p.addRoundRect(5f, 10.5f, 19f, 20f, 2.5f, 2.5f, Path.Direction.CW);
+        p.moveTo(8f, 10.5f);
+        p.lineTo(8f, 8f);
+        p.cubicTo(8f, 3.5f, 16f, 3.5f, 16f, 8f);
+        p.lineTo(16f, 10.5f);
+    };
+
     static final Shape WALL = p -> {
         p.addRect(3.5f, 5f, 20.5f, 19f, Path.Direction.CW);
         p.moveTo(3.5f, 9.7f);
