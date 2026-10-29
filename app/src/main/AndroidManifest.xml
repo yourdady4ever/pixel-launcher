@@ -12,6 +12,8 @@
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" tools:ignore="ProtectedPermissions" />
     <!-- Solo para el widget de agenda; se pide al agregarlo -->
     <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <!-- Sin esto Android 9+ cierra en silencio la ventana de desinstalar; igual siempre te pregunta -->
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
 
     <!-- Para poder ver y abrir las apps instaladas (Android 11+) -->
     <queries>

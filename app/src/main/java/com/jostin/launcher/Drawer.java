@@ -175,8 +175,8 @@ class Drawer extends FrameLayout {
     private final TextView webText;
     private final LinearLayout suggestRow;
     private final LinearLayout column;
-    private float downY;
-    private boolean dragging = false;
+    private float downX, downY;
+    private boolean dragging = false, swiping = false;
     private VelocityTracker vt;
     private boolean showHidden = false;
 
@@ -505,14 +505,23 @@ class Drawer extends FrameLayout {
         if (pick) return false;
         switch (e.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
+                downX = e.getRawX();
                 downY = e.getRawY();
                 dragging = false;
+                swiping = false;
                 break;
             case MotionEvent.ACTION_MOVE:
                 if (e.getRawY() - downY > Ui.dp(act, 16) && !grid.canScrollVertically(-1)) {
                     dragging = true;
                     vt = VelocityTracker.obtain();
                     Sheet.hideKeyboard(act, search);
+                    return true;
+                }
+                // De lado: cambia entre Personal y Trabajo
+                float dx = e.getRawX() - downX;
+                if (tabs.getVisibility() == VISIBLE && search.length() == 0
+                        && Math.abs(dx) > Ui.dp(act, 24) && Math.abs(dx) > Math.abs(e.getRawY() - downY) * 1.5f) {
+                    swiping = true;
                     return true;
                 }
                 break;
@@ -522,8 +531,39 @@ class Drawer extends FrameLayout {
         return false;
     }
 
+    /**
+     * Con dos pestañas, deslizar hacia cualquier lado lleva a la otra. La lista se va hacia donde
+     * mueves el dedo y la otra entra por el lado contrario.
+     */
+    private void switchTab(float dx) {
+        Sound.play(this, Sound.TOGGLE);
+        tabs.select(tabs.selected() == 0 ? 1 : 0, true);
+        float out = Math.signum(dx) * grid.getWidth() * 0.5f;
+        grid.animate().translationX(out).alpha(0f).setDuration(140).withEndAction(() -> {
+            filter(false);
+            grid.setTranslationX(-out);
+            grid.animate().translationX(0).alpha(1f).setDuration(240).setInterpolator(new DecelerateInterpolator(2f)).start();
+        }).start();
+    }
+
     @Override
     public boolean onTouchEvent(MotionEvent e) {
+        if (swiping) {
+            float sx = e.getRawX() - downX;
+            switch (e.getActionMasked()) {
+                case MotionEvent.ACTION_MOVE:
+                    grid.setTranslationX(sx * 0.35f);
+                    return true;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    swiping = false;
+                    if (e.getActionMasked() == MotionEvent.ACTION_UP && Math.abs(sx) > Ui.dp(act, 56)) switchTab(sx);
+                    else grid.animate().translationX(0).setDuration(200).start();
+                    return true;
+                default:
+                    return true;
+            }
+        }
         if (!dragging) {
             if (e.getActionMasked() == MotionEvent.ACTION_DOWN && !pick) {
                 downY = e.getRawY();

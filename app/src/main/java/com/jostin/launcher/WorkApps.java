@@ -45,6 +45,8 @@ final class WorkApps {
         for (UserHandle u : profiles(c)) {
             try {
                 for (LauncherActivityInfo info : la.getActivityList(null, u)) {
+                    // Island y Shelter clonan también Jostin; igual que en Personal, el cajón no se muestra a sí mismo
+                    if (info.getComponentName().getPackageName().equals(c.getPackageName())) continue;
                     Drawer.App x = new Drawer.App(String.valueOf(info.getLabel()), info.getComponentName().getPackageName(), u, info.getComponentName());
                     x.badged = info.getBadgedIcon(0);
                     out.add(x);

@@ -1258,7 +1258,8 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
                     Sheet.item("Información de la app", Icons.INFO, () -> WorkApps.info(this, app)),
                     Sheet.item("Pausar apps de trabajo", Icons.WORK, () -> {
                         if (WorkApps.setPaused(this, true)) Sheet.pill(this, backdrop, "Apps de trabajo en pausa");
-                    }));
+                    }),
+                    Sheet.item("Desinstalar", Icons.TRASH, () -> uninstall(app.pkg, app.user)).danger());
             return;
         }
         Sheet.show(this, backdrop, app.label,
@@ -1279,8 +1280,15 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
     }
 
     void uninstall(String pkg) {
+        uninstall(pkg, null);
+    }
+
+    /** La ventana de Android para desinstalar; con perfil, la quita solo del perfil de trabajo. */
+    void uninstall(String pkg, UserHandle user) {
+        Intent i = new Intent(Intent.ACTION_DELETE, Uri.parse("package:" + pkg));
+        if (user != null) i.putExtra(Intent.EXTRA_USER, user);
         try {
-            startActivity(new Intent(Intent.ACTION_DELETE, Uri.parse("package:" + pkg)));
+            startActivity(i);
         } catch (Exception e) {
             appInfo(this, pkg);
         }
