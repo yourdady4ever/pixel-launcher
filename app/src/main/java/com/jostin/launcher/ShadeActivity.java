@@ -91,6 +91,12 @@ public class ShadeActivity extends Activity implements Dashboard.Host {
 
     @Override
     public void quick(int action) {
+        if (action >= Dashboard.Q_ROTATE) {
+            // Para grabar se cierra el panel primero, si no saldría en el video
+            if (action == Dashboard.Q_RECORD && !Recorder.recording) closeDashboard();
+            Controls.extra(this, backdrop, action);
+            return;
+        }
         switch (action) {
             case Dashboard.Q_TORCH: Controls.toggle(this, backdrop, 0); break;
             case Dashboard.Q_STUDY:

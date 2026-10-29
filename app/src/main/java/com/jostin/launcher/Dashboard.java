@@ -34,6 +34,11 @@ class Dashboard extends FrameLayout implements Media.Listener {
     }
 
     static final int Q_TORCH = 0, Q_STUDY = 1, Q_WALL = 2, Q_LOCK = 3, Q_NET = 4, Q_BT = 5, Q_DND = 6, Q_VOL = 7;
+    // Los que antes solo tenía el panel de Android
+    static final int Q_ROTATE = 8, Q_LOCATION = 9, Q_SAVER = 10, Q_PLANE = 11, Q_HOTSPOT = 12, Q_CAST = 13, Q_SHARE = 14, Q_RECORD = 15;
+    private static final int QUICK_COUNT = 16;
+    private static final String[] QUICK_LABELS = {"Linterna", "Estudio", "Otro fondo", "Bloquear", "Internet", "Bluetooth", "No molestar", "Volumen",
+            "Rotación", "Ubicación", "Ahorro", "Modo avión", "Zona Wi-Fi", "Transmitir", "Quick Share", "Grabar"};
 
     private final Activity act;
     private final Backdrop backdrop;
@@ -50,8 +55,8 @@ class Dashboard extends FrameLayout implements Media.Listener {
     private TextView mTitle, mArtist, mPos, mDur;
     private ImageView mPlay;
     private Progress mBar;
-    private final View[] quick = new View[8];
-    private final ImageView[] quickIcons = new ImageView[8];
+    private final View[] quick = new View[QUICK_COUNT];
+    private final ImageView[] quickIcons = new ImageView[QUICK_COUNT];
     private LinearLayout bright;
     private ScrollView scroll;
     private float downY;
@@ -250,10 +255,8 @@ class Dashboard extends FrameLayout implements Media.Listener {
         }
         col.addView(ringCard, cardParams(a, 10));
 
-        // Centro de control: dos filas de atajos y el brillo
-        Icons.Shape[] qi = {Widgets.TORCH, Icons.FOCUS, Icons.IMAGE, Widgets.LOCK, Weather.CLOUD, BT, Gadgets.MOON_OFF, Icons.SOUND};
-        String[] ql = {"Linterna", "Estudio", "Otro fondo", "Bloquear", "Internet", "Bluetooth", "No molestar", "Volumen"};
-        for (int r = 0; r < 2; r++) {
+        // Centro de control: cuatro filas de atajos y el brillo
+        for (int r = 0; r < QUICK_COUNT / 4; r++) {
             LinearLayout q = new LinearLayout(a);
             for (int c = 0; c < 4; c++) {
                 final int action = r * 4 + c;
@@ -264,11 +267,11 @@ class Dashboard extends FrameLayout implements Media.Listener {
                 b.setPadding(0, p, 0, p);
                 Glass.apply(b, backdrop, 22);
                 ImageView ic = new ImageView(a);
-                ic.setImageDrawable(Icons.of(qi[action]));
+                ic.setImageDrawable(Icons.of(quickIcon(action)));
                 int ip = Ui.dp(a, 6);
                 ic.setPadding(ip, ip, ip, ip);
                 b.addView(ic, new LinearLayout.LayoutParams(Ui.dp(a, 36), Ui.dp(a, 36)));
-                TextView t = Ui.text(a, ql[action], 12, Ui.TEXT, Ui.MEDIUM);
+                TextView t = Ui.text(a, QUICK_LABELS[action], 12, Ui.TEXT, Ui.MEDIUM);
                 t.setMaxLines(1);
                 LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(-2, -2);
                 tl.topMargin = Ui.dp(a, 4);
@@ -360,16 +363,40 @@ class Dashboard extends FrameLayout implements Media.Listener {
         p.lineTo(7f, 16.5f);
     };
 
+    private static Icons.Shape quickIcon(int i) {
+        switch (i) {
+            case Q_TORCH: return Widgets.TORCH;
+            case Q_STUDY: return Icons.FOCUS;
+            case Q_WALL: return Icons.IMAGE;
+            case Q_LOCK: return Widgets.LOCK;
+            case Q_NET: return Weather.CLOUD;
+            case Q_BT: return BT;
+            case Q_DND: return Gadgets.MOON_OFF;
+            case Q_VOL: return Icons.SOUND;
+            case Q_ROTATE: return Icons.ROTATE;
+            case Q_LOCATION: return Icons.PIN;
+            case Q_SAVER: return Icons.SAVER;
+            case Q_PLANE: return Icons.PLANE;
+            case Q_HOTSPOT: return Icons.HOTSPOT;
+            case Q_CAST: return Icons.CAST;
+            case Q_SHARE: return Icons.SHARE;
+            default: return Icons.RECORD;
+        }
+    }
+
     /** Pinta con el color de acento lo que está prendido (según Android, no según lo que tocaste). */
     private void refreshQuick() {
-        boolean[] on = new boolean[8];
+        boolean[] on = new boolean[QUICK_COUNT];
         on[Q_TORCH] = Device.torchOn();
         on[Q_STUDY] = Prefs.studying(act);
         on[Q_DND] = NotifService.dndOn(act);
-        for (int i = 0; i < 8; i++) {
+        on[Q_ROTATE] = Controls.rotationOn(act);
+        on[Q_LOCATION] = Controls.locationOn(act);
+        on[Q_SAVER] = Controls.saverOn(act);
+        on[Q_RECORD] = Recorder.recording;
+        for (int i = 0; i < QUICK_COUNT; i++) {
             if (quickIcons[i] == null) continue;
-            Icons.Line d = Icons.of(i == Q_NET ? Weather.CLOUD : i == Q_BT ? BT : i == Q_DND ? Gadgets.MOON_OFF : i == Q_VOL ? Icons.SOUND
-                    : i == Q_TORCH ? Widgets.TORCH : i == Q_STUDY ? Icons.FOCUS : i == Q_WALL ? Icons.IMAGE : Widgets.LOCK);
+            Icons.Line d = Icons.of(quickIcon(i));
             d.setColor(on[i] ? Theme.onAccent : Ui.TEXT);
             quickIcons[i].setImageDrawable(d);
             quickIcons[i].setBackground(on[i] ? Ui.fill(act, Theme.accent, 18) : null);
@@ -598,11 +625,52 @@ class Dashboard extends FrameLayout implements Media.Listener {
         mDur.setText(d > 0 ? DateUtils.formatElapsedTime(d / 1000) : "");
     }
 
+    /** Los botones del aviso, como en la barra de Android. "Responder" deja escribir ahí mismo. */
+    private View actionRow(Activity a, Media.Note n) {
+        if (n.actions == null) return null;
+        LinearLayout r = new LinearLayout(a);
+        int count = 0;
+        for (android.app.Notification.Action act : n.actions) {
+            if (act == null || act.title == null || count >= 3) continue;
+            count++;
+            TextView b = Ui.text(a, act.title.toString(), 13, Ui.TEXT, Ui.SEMIBOLD);
+            b.setMaxLines(1);
+            int ph = Ui.dp(a, 12), pv = Ui.dp(a, 7);
+            b.setPadding(ph, pv, ph, pv);
+            b.setBackground(Ui.fill(a, 0x1FFFFFFF, 14));
+            Ui.pressable(b, 0.94f);
+            b.setOnClickListener(v -> {
+                Sound.play(v, Sound.TAP);
+                android.app.RemoteInput ri = Media.replyInput(act);
+                if (ri != null) {
+                    String hint = ri.getLabel() != null ? ri.getLabel().toString() : "Escribe tu respuesta";
+                    Sheet.prompt(a, backdrop, act.title.toString(), hint, "", text -> {
+                        if (text == null || text.trim().isEmpty()) return;
+                        Sheet.pill(a, backdrop, Media.reply(a, act, text.trim()) ? "Enviado" : "Android no dejó responder");
+                        handler.postDelayed(this::buildNotes, 600);
+                    });
+                    return;
+                }
+                if (!Media.fire(a, act.actionIntent, null)) Sheet.pill(a, backdrop, "Android no dejó usar ese botón");
+                handler.postDelayed(this::buildNotes, 600);
+            });
+            LinearLayout.LayoutParams bl = new LinearLayout.LayoutParams(-2, -2);
+            if (count > 1) bl.leftMargin = Ui.dp(a, 8);
+            r.addView(b, bl);
+        }
+        if (count == 0) return null;
+        // Si los nombres son largos, se recorren de lado en vez de cortarse
+        android.widget.HorizontalScrollView hs = new android.widget.HorizontalScrollView(a);
+        hs.setHorizontalScrollBarEnabled(false);
+        hs.addView(r);
+        return hs;
+    }
+
     private void buildNotes() {
         Activity a = act;
         notes.removeAllViews();
         if (!Media.hasAccess(a) || !Prefs.notesInPanel(a)) return;
-        List<Media.Note> list = Media.recent(a, 14);
+        List<Media.Note> list = Media.recent(a, 20);
         LinearLayout head = new LinearLayout(a);
         head.setGravity(Gravity.CENTER_VERTICAL);
         TextView h = Ui.label(a, list.isEmpty() ? "Sin notificaciones" : "Notificaciones");
@@ -665,17 +733,18 @@ class Dashboard extends FrameLayout implements Media.Listener {
             LinearLayout.LayoutParams sl = new LinearLayout.LayoutParams(-1, -2);
             sl.topMargin = Ui.dp(a, 3);
             if (!n.text.isEmpty()) tx.addView(s, sl);
+            View acts = actionRow(a, n);
+            if (acts != null) {
+                LinearLayout.LayoutParams al = new LinearLayout.LayoutParams(-1, -2);
+                al.topMargin = Ui.dp(a, 10);
+                tx.addView(acts, al);
+            }
             LinearLayout.LayoutParams txl = new LinearLayout.LayoutParams(0, -2, 1f);
             txl.leftMargin = Ui.dp(a, 12);
             row.addView(tx, txl);
             row.setOnClickListener(v -> {
                 Sound.play(v, Sound.OPEN);
-                try {
-                    if (n.intent != null) n.intent.send();
-                    else MainActivity.launch(a, n.pkg, v);
-                } catch (Exception e) {
-                    MainActivity.launch(a, n.pkg, v);
-                }
+                if (!Media.fire(a, n.intent, null)) MainActivity.launch(a, n.pkg, v);
                 if (n.autoCancel && n.clearable) NotifService.cancel(n.key);
                 host.closeDashboard();
             });

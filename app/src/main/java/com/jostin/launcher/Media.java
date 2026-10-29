@@ -1,9 +1,11 @@
 package com.jostin.launcher;
 
 import android.app.Activity;
+import android.app.ActivityOptions;
 import android.app.Notification;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.app.RemoteInput;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -16,11 +18,14 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
+import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
 
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * La música que suena en cualquier app (Spotify, YouTube Music...) y tus notificaciones recientes.
@@ -35,7 +40,9 @@ final class Media {
         String pkg, title, text, key;
         long time;
         PendingIntent intent;
-        boolean clearable, autoCancel;
+        boolean clearable, autoCancel, ongoing;
+        /** Los botones del aviso ("Responder", "Sí, soy yo", "Colgar"…). */
+        Notification.Action[] actions;
     }
 
     private static final Handler main = new Handler(Looper.getMainLooper());
@@ -299,13 +306,14 @@ final class Media {
             return out;
         }
         if (all == null) return out;
-        Arrays.sort(all, (x, y) -> Long.compare(y.getPostTime(), x.getPostTime()));
-        for (StatusBarNotification n : all) {
+        for (StatusBarNotification n : ordered(s, all)) {
             if (out.size() >= max) break;
-            if (n.isOngoing() || n.getPackageName().equals(c.getPackageName())) continue;
+            if (n.getPackageName().equals(c.getPackageName())) continue;
             Notification no = n.getNotification();
             if ((no.flags & Notification.FLAG_GROUP_SUMMARY) != 0) continue;
             Bundle ex = no.extras;
+            // La música ya tiene su tarjeta arriba; las demás fijas (llamadas, mapas, VPN) sí se enseñan
+            if (ex.containsKey(Notification.EXTRA_MEDIA_SESSION)) continue;
             CharSequence title = ex.getCharSequence(Notification.EXTRA_TITLE);
             CharSequence text = ex.getCharSequence(Notification.EXTRA_TEXT);
             if (title == null) continue;
@@ -318,9 +326,73 @@ final class Media {
             note.key = n.getKey();
             note.clearable = n.isClearable();
             note.autoCancel = (no.flags & Notification.FLAG_AUTO_CANCEL) != 0;
+            note.ongoing = n.isOngoing();
+            note.actions = no.actions;
             out.add(note);
         }
         return out;
+    }
+
+    /** En el orden del panel de Android (lo importante y lo que está pasando primero); si no, por hora. */
+    private static List<StatusBarNotification> ordered(NotifService s, StatusBarNotification[] all) {
+        Map<String, StatusBarNotification> byKey = new HashMap<>();
+        for (StatusBarNotification n : all) byKey.put(n.getKey(), n);
+        List<StatusBarNotification> out = new ArrayList<>();
+        try {
+            NotificationListenerService.RankingMap rm = s.getCurrentRanking();
+            if (rm != null) {
+                for (String k : rm.getOrderedKeys()) {
+                    StatusBarNotification n = byKey.remove(k);
+                    if (n != null) out.add(n);
+                }
+            }
+        } catch (Exception ignored) {
+            // sin orden de Android: va por hora
+        }
+        List<StatusBarNotification> rest = new ArrayList<>(byKey.values());
+        Collections.sort(rest, (x, y) -> Long.compare(y.getPostTime(), x.getPostTime()));
+        out.addAll(rest);
+        return out;
+    }
+
+    /** El botón pide escribir (Responder). */
+    static RemoteInput replyInput(Notification.Action act) {
+        RemoteInput[] ris = act.getRemoteInputs();
+        if (ris == null) return null;
+        for (RemoteInput ri : ris) if (ri.getAllowFreeFormInput()) return ri;
+        return null;
+    }
+
+    /** Responde ahí mismo, como desde la barra de Android. */
+    static boolean reply(Context c, Notification.Action act, String text) {
+        RemoteInput ri = replyInput(act);
+        if (ri == null || act.actionIntent == null) return false;
+        Intent fill = new Intent();
+        Bundle results = new Bundle();
+        results.putCharSequence(ri.getResultKey(), text);
+        RemoteInput.addResultsToIntent(new RemoteInput[]{ri}, fill, results);
+        if (android.os.Build.VERSION.SDK_INT >= 28) RemoteInput.setResultsSource(fill, RemoteInput.SOURCE_FREE_FORM_INPUT);
+        return fire(c, act.actionIntent, fill);
+    }
+
+    /**
+     * Toca un aviso o uno de sus botones. Desde Android 14 hay que decir explícitamente que la app
+     * del aviso puede abrir su pantalla; si no, Android lo bloquea en silencio.
+     */
+    static boolean fire(Context c, PendingIntent pi, Intent fill) {
+        if (pi == null) return false;
+        Bundle opts = null;
+        if (android.os.Build.VERSION.SDK_INT >= 34) {
+            opts = ActivityOptions.makeBasic()
+                    .setPendingIntentBackgroundActivityStartMode(ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED)
+                    .toBundle();
+        }
+        try {
+            pi.send(c, 0, fill, null, null, null, opts);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     /** Apps con notificaciones activas (para el puntito en sus íconos). */
