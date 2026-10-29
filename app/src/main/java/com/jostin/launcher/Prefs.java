@@ -229,7 +229,10 @@ final class Prefs {
     static boolean edgeShade(Context c) { return b(c, "edge_shade", false); }
     static void setEdgeShade(Context c, boolean on) { put(c, "edge_shade", on); }
     /** 0 toda la orilla, 1 mitad derecha, 2 mitad izquierda (la otra mitad sigue siendo de Android). */
-    static int edgeZone(Context c) { return i(c, "edge_zone", 1); }
+    // Toda la orilla: con media, en la otra mitad seguía saliendo el panel de Android
+    static int edgeZone(Context c) { return i(c, "edge_zone", 0); }
+    static boolean panelMore(Context c) { return b(c, "panel_more", false); }
+    static void setPanelMore(Context c, boolean on) { put(c, "panel_more", on); }
     static void setEdgeZone(Context c, int v) { put(c, "edge_zone", v); }
 
     // ---------- Animaciones ----------

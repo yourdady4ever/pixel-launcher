@@ -459,7 +459,10 @@ class Drawer extends FrameLayout {
             for (App x : work) if (x.key.contains(q)) shown.add(x);
             for (App x : priv) if (x.key.contains(q)) shown.add(x);
         }
-        boolean none = shown.isEmpty() && !q.isEmpty() && (!all.isEmpty() || !work.isEmpty());
+        // Espacio privado: bloqueado no se ve; para abrirlo se busca "privado", como en Pixel
+        boolean askPrivate = q.contains("privad") || q.contains("private");
+        boolean showPrivate = hasPrivate && !workTab && (privLocked ? askPrivate : q.isEmpty() || askPrivate);
+        boolean none = shown.isEmpty() && !q.isEmpty() && !showPrivate && (!all.isEmpty() || !work.isEmpty());
         boolean noWork = workTab && q.isEmpty() && work.isEmpty();
         empty.setVisibility(none || noWork ? VISIBLE : GONE);
         empty.setText(noWork ? (workPaused ? "Tus apps de trabajo están en pausa" : "No hay apps de trabajo") : "No encontré esa app");
@@ -467,7 +470,7 @@ class Drawer extends FrameLayout {
         webText.setText("Buscar «" + search.getText().toString().trim() + "» en internet");
         workRow.setVisibility(workTab && q.isEmpty() ? VISIBLE : GONE);
         workText.setText(workPaused ? "Reanudar apps de trabajo" : "Pausar apps de trabajo");
-        privBox.setVisibility(hasPrivate && !workTab && q.isEmpty() ? VISIBLE : GONE);
+        privBox.setVisibility(showPrivate ? VISIBLE : GONE);
         fillSuggestions(q.isEmpty() && !pick && !workTab && Prefs.drawerSuggest(act));
         adapter.notifyDataSetChanged();
         if (animate) grid.scheduleLayoutAnimation();

@@ -255,7 +255,9 @@ class Dashboard extends FrameLayout implements Media.Listener {
         }
         col.addView(ringCard, cardParams(a, 10));
 
-        // Centro de control: cuatro filas de atajos y el brillo
+        // Centro de control: dos filas a la vista y las otras dos con "Más", como en Android
+        LinearLayout more = new LinearLayout(a);
+        more.setOrientation(LinearLayout.VERTICAL);
         for (int r = 0; r < QUICK_COUNT / 4; r++) {
             LinearLayout q = new LinearLayout(a);
             for (int c = 0; c < 4; c++) {
@@ -288,8 +290,28 @@ class Dashboard extends FrameLayout implements Media.Listener {
                 if (c > 0) lp.leftMargin = Ui.dp(a, 8);
                 q.addView(b, lp);
             }
-            col.addView(q, cardParams(a, r == 0 ? 10 : 8));
+            if (r < 2) col.addView(q, cardParams(a, r == 0 ? 10 : 8));
+            else more.addView(q, cardParams(a, 8));
         }
+        boolean expanded = Prefs.panelMore(a);
+        more.setVisibility(expanded ? View.VISIBLE : View.GONE);
+        col.addView(more, new LinearLayout.LayoutParams(-1, -2));
+        TextView toggle = Ui.text(a, expanded ? "Menos" : "Más", 13, Ui.MUTED, Ui.SEMIBOLD);
+        toggle.setGravity(Gravity.CENTER);
+        int tp = Ui.dp(a, 8);
+        toggle.setPadding(Ui.dp(a, 18), tp, Ui.dp(a, 18), tp);
+        Ui.pressable(toggle, 0.94f);
+        toggle.setOnClickListener(v -> {
+            boolean show = more.getVisibility() != View.VISIBLE;
+            Sound.play(v, Sound.TOGGLE);
+            Prefs.setPanelMore(a, show);
+            more.setVisibility(show ? View.VISIBLE : View.GONE);
+            toggle.setText(show ? "Menos" : "Más");
+        });
+        LinearLayout.LayoutParams tgl = new LinearLayout.LayoutParams(-2, -2);
+        tgl.gravity = Gravity.CENTER_HORIZONTAL;
+        tgl.topMargin = Ui.dp(a, 4);
+        col.addView(toggle, tgl);
         bright = card(a);
         bright.setOrientation(LinearLayout.HORIZONTAL);
         bright.setGravity(Gravity.CENTER_VERTICAL);
@@ -532,6 +554,7 @@ class Dashboard extends FrameLayout implements Media.Listener {
     private void buildMusic() {
         Activity a = act;
         music.removeAllViews();
+        music.setVisibility(View.VISIBLE);
         art = null;
         if (!Media.hasAccess(a)) {
             TextView t = Ui.text(a, "Música y notificaciones", 16, Ui.TEXT, Ui.SEMIBOLD);
@@ -552,15 +575,8 @@ class Dashboard extends FrameLayout implements Media.Listener {
             return;
         }
         if (!Media.active()) {
-            LinearLayout row = new LinearLayout(a);
-            row.setGravity(Gravity.CENTER_VERTICAL);
-            Widgets.Art ph = new Widgets.Art(a, false);
-            row.addView(ph, new LinearLayout.LayoutParams(Ui.dp(a, 44), Ui.dp(a, 44)));
-            TextView t = Ui.text(a, "No hay música sonando", 15, Ui.MUTED, Ui.MEDIUM);
-            LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(-2, -2);
-            tl.leftMargin = Ui.dp(a, 14);
-            row.addView(t, tl);
-            music.addView(row, new LinearLayout.LayoutParams(-1, -2));
+            // Sin nada sonando la tarjeta solo ocupaba lugar; aparece cuando pones música
+            music.setVisibility(View.GONE);
             return;
         }
         art = new Widgets.Art(a, true);
