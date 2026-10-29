@@ -108,7 +108,7 @@ final class Scenes {
                 rims[i] = new LinearGradient(-w * 0.7f, 0, w * 0.7f, 0,
                         new int[]{0x00FFFFFF, (peak << 24) | 0xFFFFFF, 0x00FFFFFF}, null, Shader.TileMode.CLAMP);
             }
-            crest.setStrokeWidth(Math.max(1f, w / 380f));
+            crest.setStrokeWidth(w > 300 ? Math.max(1f, w / 380f) : w / 380f);
         }
 
         @Override
@@ -241,7 +241,7 @@ final class Scenes {
                     }
                 }
             }
-            stroke.setStrokeWidth(Math.max(1.5f, w / 360f));
+            stroke.setStrokeWidth(w > 300 ? Math.max(1.5f, w / 360f) : w / 360f);
             shade = new LinearGradient(0, 0, 0, h, 0x00000000, 0xCC000000, Shader.TileMode.CLAMP);
         }
 
@@ -296,7 +296,7 @@ final class Scenes {
             sheen = new LinearGradient(slant, -h * 0.2f, 0, h * 0.2f,
                     new int[]{0x00FFFFFF, 0x2EFFFFFF, 0x00FFFFFF}, null, Shader.TileMode.CLAMP);
             sheenPaint.setShader(sheen);
-            edge.setStrokeWidth(Math.max(1f, w / 420f));
+            edge.setStrokeWidth(w > 300 ? Math.max(1f, w / 420f) : w / 420f);
             edge.setShader(new LinearGradient(0, 0, 0, h * 0.7f, 0x99FF7A7A, 0x00FF7A7A, Shader.TileMode.CLAMP));
         }
 
@@ -506,7 +506,7 @@ final class Scenes {
         @Override
         void prepare() {
             bg = new LinearGradient(0, 0, w, h, 0xFF04060C, 0xFF0C1526, Shader.TileMode.CLAMP);
-            line.setStrokeWidth(Math.max(1f, w / 640f));
+            line.setStrokeWidth(w > 300 ? Math.max(1f, w / 640f) : w / 640f);
         }
 
         private static float bounce(float v) {
@@ -549,7 +549,7 @@ final class Scenes {
                     }
                 }
             }
-            float rr = Math.max(1.5f, w / 420f);
+            float rr = w > 300 ? Math.max(1.5f, w / 420f) : w / 420f;
             for (int i = 0; i < N; i++) {
                 dot.setAlpha(i % 7 == 0 ? 255 : 170);
                 c.drawCircle(pos[i * 2], pos[i * 2 + 1], i % 7 == 0 ? rr * 1.8f : rr, dot);
@@ -591,7 +591,7 @@ final class Scenes {
             bg = new LinearGradient(0, 0, 0, h, 0xFF0B2D52, 0xFF061629, Shader.TileMode.CLAMP);
             if (Ui.REGULAR != null) text.setTypeface(Ui.REGULAR);
             text.setTextSize(w / 34f);
-            ink.setStrokeWidth(Math.max(1f, w / 300f));
+            ink.setStrokeWidth(w > 300 ? Math.max(1f, w / 300f) : w / 300f);
             // Cuadrícula: un mosaico pequeño que se repite (casi no ocupa memoria)
             float cell = w / 24f;
             int tile = Math.max(4, Math.round(cell * 4));
@@ -613,8 +613,8 @@ final class Scenes {
             List<float[]> s = new ArrayList<>();
             labels.clear();
             labelText.clear();
-            float u = w / 10f;                 // 1 unidad = 1 m aprox
-            float ox = w * 0.12f, oy = h * 0.3f;
+            float u = w / 11.5f;               // 1 unidad = 1 m aprox
+            float ox = (w - 7.6f * u) / 2f + 0.35f * u, oy = h * 0.37f;
             float W = 7.6f * u, H = 9.2f * u;
             // Muros exteriores
             rect(s, ox, oy, ox + W, oy + H);
@@ -714,7 +714,7 @@ final class Scenes {
             }
             if (tipX >= 0) {
                 pen.setAlpha((int) (255 * fade));
-                c.drawCircle(tipX, tipY, Math.max(2f, w / 260f), pen);
+                c.drawCircle(tipX, tipY, w > 300 ? Math.max(2f, w / 260f) : w / 260f, pen);
             }
         }
     }
@@ -728,6 +728,7 @@ final class Scenes {
         private final int accent, tint;
         private boolean motion;
         private final Paint img = new Paint(Paint.FILTER_BITMAP_FLAG);
+        private Bitmap mini;
 
         Photo(Bitmap bmp, Palette p, boolean motion) {
             this.bmp = bmp;
@@ -747,12 +748,32 @@ final class Scenes {
         @Override boolean animated() { return motion; }
 
         @Override
+        void prepare() {
+            mini = null;
+            if (w >= 400 || bmp == null || bmp.isRecycled()) return;
+            // Reducir a la mitad varias veces promedia bien los píxeles (los puntos no hacen moiré)
+            Bitmap b = bmp;
+            while (b.getWidth() / 2 >= w * 2) {
+                Bitmap n = Bitmap.createScaledBitmap(b, b.getWidth() / 2, b.getHeight() / 2, true);
+                if (b != bmp) b.recycle();
+                b = n;
+            }
+            int bw = b.getWidth(), bh = b.getHeight();
+            int[] px = new int[bw * bh];
+            b.getPixels(px, 0, bw, 0, 0, bw, bh);
+            Wallpaper.boxBlur(px, bw, bh, 2);
+            mini = Bitmap.createBitmap(px, bw, bh, Bitmap.Config.ARGB_8888);
+            if (b != bmp) b.recycle();
+        }
+
+        @Override
         void draw(Canvas c, float t) {
-            if (bmp == null || bmp.isRecycled()) {
+            Bitmap src = mini != null ? mini : bmp;
+            if (src == null || src.isRecycled()) {
                 c.drawColor(0xFF000000);
                 return;
             }
-            float s = Math.max(w / (float) bmp.getWidth(), h / (float) bmp.getHeight());
+            float s = Math.max(w / (float) src.getWidth(), h / (float) src.getHeight());
             float zoom = 1f, dx = 0, dy = 0;
             if (motion) {
                 zoom = 1f + 0.07f * (0.5f - 0.5f * (float) Math.cos(t * 2 * Math.PI / 48f));
@@ -761,8 +782,8 @@ final class Scenes {
             }
             float sc = s * zoom;
             mx.setScale(sc, sc);
-            mx.postTranslate((w - bmp.getWidth() * sc) / 2f + dx, (h - bmp.getHeight() * sc) / 2f + dy);
-            c.drawBitmap(bmp, mx, img);
+            mx.postTranslate((w - src.getWidth() * sc) / 2f + dx, (h - src.getHeight() * sc) / 2f + dy);
+            c.drawBitmap(src, mx, img);
         }
     }
 }

@@ -11,7 +11,6 @@ adb shell wm dismiss-keyguard || true
 # El launcher de Google del emulador se congela con tanta carga y su aviso tapa las capturas:
 # se pone Jostin OS como inicio y se desactiva el otro
 adb shell cmd package set-home-activity $PKG/$PKG.MainActivity || true
-adb shell pm disable-user --user 0 com.google.android.apps.nexuslauncher || true
 adb shell am force-stop com.google.android.apps.nexuslauncher || true
 adb logcat -c
 
