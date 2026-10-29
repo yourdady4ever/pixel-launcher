@@ -40,7 +40,8 @@ final class HomeMenus {
         List<Sheet.Item> list = new ArrayList<>();
         if (!Prefs.homeLocked(a)) list.add(Sheet.item("Editar inicio", Icons.SHAPES, () -> a.home.setEditing(true)));
         list.add(Sheet.item("Agregar widget", Icons.PLUS, () -> widgets(a)));
-        list.add(Sheet.item("Fondos", Icons.IMAGE, () -> Studio.show(a, a, 0)));
+        list.add(Sheet.item("Fondos", Icons.IMAGE, () -> Studio.show(a, a, Studio.TAB_WALL)));
+        list.add(Sheet.item("Temas", Icons.SPARK, () -> Studio.show(a, a, Studio.TAB_THEMES)));
         list.add(Sheet.item("Personalizar", Icons.GEAR, () -> Studio.show(a, a, -1)));
         Sheet.show(a, a.backdrop(), "Inicio", list);
     }

@@ -605,6 +605,7 @@ class HomeView extends FrameLayout {
         if (it == null) return;
         Rect r = cellRect(it.x, it.y, it.w, it.h);
         float gl = gridLeft(it.page);
+        frame.minTop = top;
         frame.place(new RectF(gl + r.left, gridTop + r.top, gl + r.right, gridTop + r.bottom),
                 !it.locked && resizable(it), !it.locked && Gadgets.decor(it.type), it.locked);
     }
@@ -1384,12 +1385,36 @@ class HomeView extends FrameLayout {
             return Math.hypot(x - cx, y - cy) < Ui.dp(getContext(), 26);
         }
 
+        float minTop = 0;
+
+        // Los botones de las esquinas nunca quedan bajo la barra de estado ni fuera de la pantalla
+        private float edge() {
+            return Ui.dp(getContext(), 15);
+        }
+
+        private float lx() {
+            return Math.max(box.left, edge());
+        }
+
+        private float rx() {
+            return Math.min(box.right, getWidth() - edge());
+        }
+
+        private float ty() {
+            return Math.max(box.top, minTop + edge());
+        }
+
+        private float rotY() {
+            float y = box.top - Ui.dp(getContext(), 22);
+            return y < minTop + edge() ? box.bottom + Ui.dp(getContext(), 22) : y;
+        }
+
         int hitTest(float x, float y) {
             if (getVisibility() != VISIBLE) return 0;
-            if (resizable && near(x, y, box.right, box.bottom)) return HANDLE;
-            if (rotatable && near(x, y, box.centerX(), box.top - Ui.dp(getContext(), 22))) return ROTATE;
-            if (near(x, y, box.right, box.top)) return CLOSE;
-            if (near(x, y, box.left, box.top)) return MENU;
+            if (resizable && near(x, y, rx(), box.bottom)) return HANDLE;
+            if (rotatable && near(x, y, box.centerX(), rotY())) return ROTATE;
+            if (near(x, y, rx(), ty())) return CLOSE;
+            if (near(x, y, lx(), ty())) return MENU;
             return 0;
         }
 
@@ -1402,21 +1427,23 @@ class HomeView extends FrameLayout {
             c.drawRoundRect(box, 22 * d, 22 * d, stroke);
             float r = 13 * d;
             if (resizable) {
+                float hx = rx();
                 fill.setColor(Theme.accent);
-                c.drawCircle(box.right, box.bottom, r, fill);
+                c.drawCircle(hx, box.bottom, r, fill);
                 ink.setColor(Theme.onAccent);
                 ink.setStrokeWidth(2 * d);
-                c.drawLine(box.right - 5 * d, box.bottom + 2 * d, box.right + 2 * d, box.bottom - 5 * d, ink);
+                c.drawLine(hx - 5 * d, box.bottom + 2 * d, hx + 2 * d, box.bottom - 5 * d, ink);
             }
             if (rotatable) {
-                float cy = box.top - 22 * d;
+                float cy = rotY();
+                boolean below = cy > box.bottom;
                 stroke.setPathEffect(null);
                 stroke.setStrokeWidth(1.5f * d);
-                c.drawLine(box.centerX(), box.top, box.centerX(), cy + r, stroke);
+                c.drawLine(box.centerX(), below ? box.bottom : box.top, box.centerX(), below ? cy - r : cy + r, stroke);
                 circle(c, box.centerX(), cy, r, rot, 0xF21B1D21);
             }
-            circle(c, box.right, box.top, r, close, 0xF21B1D21);
-            circle(c, box.left, box.top, r, locked ? lock : gear, 0xF21B1D21);
+            circle(c, rx(), ty(), r, close, 0xF21B1D21);
+            circle(c, lx(), ty(), r, locked ? lock : gear, 0xF21B1D21);
         }
 
         private void circle(Canvas c, float cx, float cy, float r, Icons.Line icon, int bg) {

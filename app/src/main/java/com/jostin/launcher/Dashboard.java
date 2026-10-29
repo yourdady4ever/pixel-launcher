@@ -33,7 +33,7 @@ class Dashboard extends FrameLayout implements Media.Listener {
         void closeDashboard();
     }
 
-    static final int Q_TORCH = 0, Q_STUDY = 1, Q_WALL = 2, Q_LOCK = 3;
+    static final int Q_TORCH = 0, Q_STUDY = 1, Q_WALL = 2, Q_LOCK = 3, Q_NET = 4, Q_BT = 5, Q_DND = 6, Q_VOL = 7;
 
     private final Activity act;
     private final Backdrop backdrop;
@@ -50,7 +50,9 @@ class Dashboard extends FrameLayout implements Media.Listener {
     private TextView mTitle, mArtist, mPos, mDur;
     private ImageView mPlay;
     private Progress mBar;
-    private final View[] quick = new View[4];
+    private final View[] quick = new View[8];
+    private final ImageView[] quickIcons = new ImageView[8];
+    private LinearLayout bright;
     private ScrollView scroll;
     private float downY;
     private boolean dragging = false;
@@ -248,36 +250,47 @@ class Dashboard extends FrameLayout implements Media.Listener {
         }
         col.addView(ringCard, cardParams(a, 10));
 
-        // Atajos
-        LinearLayout q = new LinearLayout(a);
-        Icons.Shape[] qi = {Widgets.TORCH, Icons.FOCUS, Icons.IMAGE, Widgets.LOCK};
-        String[] ql = {"Linterna", "Estudio", "Otro fondo", "Bloquear"};
-        for (int k = 0; k < 4; k++) {
-            final int action = k;
-            LinearLayout b = new LinearLayout(a);
-            b.setOrientation(LinearLayout.VERTICAL);
-            b.setGravity(Gravity.CENTER);
-            int p = Ui.dp(a, 10);
-            b.setPadding(0, p, 0, p);
-            Glass.apply(b, backdrop, 22);
-            ImageView ic = new ImageView(a);
-            ic.setImageDrawable(Icons.of(qi[k]));
-            b.addView(ic, new LinearLayout.LayoutParams(Ui.dp(a, 24), Ui.dp(a, 24)));
-            TextView t = Ui.text(a, ql[k], 12, Ui.TEXT, Ui.MEDIUM);
-            LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(-2, -2);
-            tl.topMargin = Ui.dp(a, 8);
-            b.addView(t, tl);
-            Ui.pressable(b, 0.92f);
-            b.setOnClickListener(v -> {
-                Sound.play(v, Sound.TOGGLE);
-                host.quick(action);
-            });
-            quick[k] = b;
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1f);
-            if (k > 0) lp.leftMargin = Ui.dp(a, 8);
-            q.addView(b, lp);
+        // Centro de control: dos filas de atajos y el brillo
+        Icons.Shape[] qi = {Widgets.TORCH, Icons.FOCUS, Icons.IMAGE, Widgets.LOCK, Weather.CLOUD, BT, Gadgets.MOON_OFF, Icons.SOUND};
+        String[] ql = {"Linterna", "Estudio", "Otro fondo", "Bloquear", "Internet", "Bluetooth", "No molestar", "Volumen"};
+        for (int r = 0; r < 2; r++) {
+            LinearLayout q = new LinearLayout(a);
+            for (int c = 0; c < 4; c++) {
+                final int action = r * 4 + c;
+                LinearLayout b = new LinearLayout(a);
+                b.setOrientation(LinearLayout.VERTICAL);
+                b.setGravity(Gravity.CENTER);
+                int p = Ui.dp(a, 10);
+                b.setPadding(0, p, 0, p);
+                Glass.apply(b, backdrop, 22);
+                ImageView ic = new ImageView(a);
+                ic.setImageDrawable(Icons.of(qi[action]));
+                int ip = Ui.dp(a, 6);
+                ic.setPadding(ip, ip, ip, ip);
+                b.addView(ic, new LinearLayout.LayoutParams(Ui.dp(a, 36), Ui.dp(a, 36)));
+                TextView t = Ui.text(a, ql[action], 12, Ui.TEXT, Ui.MEDIUM);
+                t.setMaxLines(1);
+                LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(-2, -2);
+                tl.topMargin = Ui.dp(a, 4);
+                b.addView(t, tl);
+                Ui.pressable(b, 0.92f);
+                b.setOnClickListener(v -> {
+                    Sound.play(v, Sound.TOGGLE);
+                    host.quick(action);
+                    handler.postDelayed(this::refreshQuick, 350);
+                });
+                quick[action] = b;
+                quickIcons[action] = ic;
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1f);
+                if (c > 0) lp.leftMargin = Ui.dp(a, 8);
+                q.addView(b, lp);
+            }
+            col.addView(q, cardParams(a, r == 0 ? 10 : 8));
         }
-        col.addView(q, cardParams(a, 10));
+        bright = card(a);
+        bright.setOrientation(LinearLayout.HORIZONTAL);
+        bright.setGravity(Gravity.CENTER_VERTICAL);
+        col.addView(bright, cardParams(a, 8));
 
         // Música
         music = card(a);
@@ -338,8 +351,104 @@ class Dashboard extends FrameLayout implements Media.Listener {
         }
     }
 
+    static final Icons.Shape BT = p -> {
+        p.moveTo(7f, 7.5f);
+        p.lineTo(16.5f, 16f);
+        p.lineTo(12f, 20f);
+        p.lineTo(12f, 4f);
+        p.lineTo(16.5f, 8f);
+        p.lineTo(7f, 16.5f);
+    };
+
+    /** Pinta con el color de acento lo que está prendido (según Android, no según lo que tocaste). */
+    private void refreshQuick() {
+        boolean[] on = new boolean[8];
+        on[Q_TORCH] = Device.torchOn();
+        on[Q_STUDY] = Prefs.studying(act);
+        on[Q_DND] = NotifService.dndOn(act);
+        for (int i = 0; i < 8; i++) {
+            if (quickIcons[i] == null) continue;
+            Icons.Line d = Icons.of(i == Q_NET ? Weather.CLOUD : i == Q_BT ? BT : i == Q_DND ? Gadgets.MOON_OFF : i == Q_VOL ? Icons.SOUND
+                    : i == Q_TORCH ? Widgets.TORCH : i == Q_STUDY ? Icons.FOCUS : i == Q_WALL ? Icons.IMAGE : Widgets.LOCK);
+            d.setColor(on[i] ? Theme.onAccent : Ui.TEXT);
+            quickIcons[i].setImageDrawable(d);
+            quickIcons[i].setBackground(on[i] ? Ui.fill(act, Theme.accent, 18) : null);
+        }
+    }
+
+    /** Brillo de la pantalla: Android pide un permiso especial para cambiarlo desde una app. */
+    private void buildBrightness() {
+        Activity a = act;
+        bright.removeAllViews();
+        ImageView sun = new ImageView(a);
+        sun.setImageDrawable(Icons.of(Weather.SUN_CLOUD));
+        bright.addView(sun, new LinearLayout.LayoutParams(Ui.dp(a, 24), Ui.dp(a, 24)));
+        android.content.ContentResolver cr = a.getContentResolver();
+        if (!android.provider.Settings.System.canWrite(a)) {
+            LinearLayout tx = new LinearLayout(a);
+            tx.setOrientation(LinearLayout.VERTICAL);
+            tx.addView(Ui.text(a, "Brillo", 15, Ui.TEXT, Ui.SEMIBOLD));
+            TextView s = Ui.text(a, "Para moverlo desde aquí, Android pide permiso para cambiar ajustes del sistema.", 12, Ui.MUTED, Ui.REGULAR);
+            s.setLineSpacing(0, 1.15f);
+            tx.addView(s);
+            LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(0, -2, 1f);
+            tl.leftMargin = Ui.dp(a, 12);
+            bright.addView(tx, tl);
+            TextView b = Sheet.button(a, "Permitir", Theme.accent, Theme.onAccent);
+            int ph = Ui.dp(a, 14);
+            b.setPadding(ph, 0, ph, 0);
+            bright.addView(b, new LinearLayout.LayoutParams(-2, Ui.dp(a, 40)));
+            b.setOnClickListener(v -> {
+                Sound.play(v, Sound.OPEN);
+                try {
+                    a.startActivity(new android.content.Intent(android.provider.Settings.ACTION_MANAGE_WRITE_SETTINGS,
+                            android.net.Uri.parse("package:" + a.getPackageName())));
+                } catch (Exception ignored) {
+                    // nada
+                }
+            });
+            return;
+        }
+        int cur = android.provider.Settings.System.getInt(cr, android.provider.Settings.System.SCREEN_BRIGHTNESS, 128);
+        Ctl.Slider s = new Ctl.Slider(a, 1, 255, cur, (v, done) -> {
+            try {
+                // Mover el brillo a mano apaga el automático, igual que en Android
+                if (android.provider.Settings.System.getInt(cr, android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE, 0) == 1) {
+                    android.provider.Settings.System.putInt(cr, android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE, 0);
+                    if (done) buildBrightness();
+                }
+                android.provider.Settings.System.putInt(cr, android.provider.Settings.System.SCREEN_BRIGHTNESS, v);
+            } catch (Exception ignored) {
+                // sin permiso
+            }
+        });
+        LinearLayout.LayoutParams sl = new LinearLayout.LayoutParams(0, Ui.dp(a, 34), 1f);
+        sl.leftMargin = Ui.dp(a, 12);
+        sl.rightMargin = Ui.dp(a, 10);
+        bright.addView(s, sl);
+        boolean auto = android.provider.Settings.System.getInt(cr, android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE, 0) == 1;
+        TextView chip = Ui.text(a, "Auto", 13, auto ? Theme.onAccent : Ui.TEXT, Ui.SEMIBOLD);
+        chip.setGravity(Gravity.CENTER);
+        int ph = Ui.dp(a, 12);
+        chip.setPadding(ph, Ui.dp(a, 8), ph, Ui.dp(a, 8));
+        chip.setBackground(auto ? Ui.fill(a, Theme.accent, 16) : Ui.outline(a, Ui.SOFT, 0x26FFFFFF, 16));
+        Ui.pressable(chip, 0.92f);
+        chip.setOnClickListener(v -> {
+            Sound.play(v, Sound.TOGGLE);
+            try {
+                android.provider.Settings.System.putInt(cr, android.provider.Settings.System.SCREEN_BRIGHTNESS_MODE, auto ? 0 : 1);
+            } catch (Exception ignored) {
+                // sin permiso
+            }
+            buildBrightness();
+        });
+        bright.addView(chip);
+    }
+
     private void onOpen() {
         open = true;
+        refreshQuick();
+        buildBrightness();
         Media.addListener(act, this);
         refreshWeather();
         updateStats();
@@ -492,7 +601,7 @@ class Dashboard extends FrameLayout implements Media.Listener {
     private void buildNotes() {
         Activity a = act;
         notes.removeAllViews();
-        if (!Media.hasAccess(a)) return;
+        if (!Media.hasAccess(a) || !Prefs.notesInPanel(a)) return;
         List<Media.Note> list = Media.recent(a, 14);
         LinearLayout head = new LinearLayout(a);
         head.setGravity(Gravity.CENTER_VERTICAL);

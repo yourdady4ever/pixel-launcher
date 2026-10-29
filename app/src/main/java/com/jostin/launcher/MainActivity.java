@@ -118,12 +118,18 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
         Sound.init(this);
         Theme.recompute(this);
         recovered = Safety.onCreate(this);
-        if (saved != null) pendingWidget = saved.getInt("pending_widget", -1);
+        int savedPage = 0;
+        if (saved != null) {
+            pendingWidget = saved.getInt("pending_widget", -1);
+            savedPage = saved.getInt("home_page", 0);
+        }
         backdrop = new Backdrop(this);
         backdrop.setListener(this);
         Ui.edgeToEdge(this, false);
         if (!Prefs.slotsInitialized(this)) fillDefaultSlots();
         buildUi();
+        // Android rehace la pantalla cuando cambian los colores del sistema (al cambiar el fondo): se vuelve a la misma página
+        home.page = savedPage;
         backdrop.useCurrent();
         SystemWall.sync(this);
         IntentFilter f = new IntentFilter();
@@ -145,6 +151,7 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
     protected void onSaveInstanceState(Bundle out) {
         super.onSaveInstanceState(out);
         out.putInt("pending_widget", pendingWidget);
+        out.putInt("home_page", home.page);
     }
 
     @Override
@@ -1346,6 +1353,18 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
             case Dashboard.Q_WALL:
                 nextWallpaper();
                 break;
+            case Dashboard.Q_NET:
+                toggle(1);
+                break;
+            case Dashboard.Q_BT:
+                startSafe(new Intent(Settings.ACTION_BLUETOOTH_SETTINGS), null);
+                break;
+            case Dashboard.Q_DND:
+                toggle(3);
+                break;
+            case Dashboard.Q_VOL:
+                toggle(2);
+                break;
             default:
                 if (!LockService.lock()) requestLock();
                 break;
@@ -1523,7 +1542,7 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
                 Prefs.setWallKind(this, 0);
                 applyWallpaper();
             }
-            handler.postDelayed(() -> Studio.show(this, this, 0), 250);
+            handler.postDelayed(() -> Studio.show(this, this, Studio.TAB_WALL), 250);
         });
     }
 
@@ -1955,6 +1974,12 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
                 break;
             }
             case "undo": home.undo(); break;
+            case "tema": {
+                List<org.json.JSONObject> p = Themes.presets();
+                ThemeStudio.tryOn(this, p.get(Math.max(0, Math.min(p.size() - 1, tab))), false);
+                break;
+            }
+            case "tema_undo": Themes.undo(this); break;
             default: break;
         }
     }
@@ -1966,7 +1991,17 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
         if (i == null) return;
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         Bundle opts = null;
-        if (from != null && from.getWidth() > 0) opts = ActivityOptions.makeScaleUpAnimation(from, 0, 0, from.getWidth(), from.getHeight()).toBundle();
+        int style = Prefs.motion(a) == 3 ? -1 : Prefs.appAnim(a);
+        boolean hasView = from != null && from.getWidth() > 0;
+        if (style == -1) {
+            opts = ActivityOptions.makeCustomAnimation(a, 0, 0).toBundle();
+        } else if (style == 0 && hasView) {
+            opts = ActivityOptions.makeScaleUpAnimation(from, 0, 0, from.getWidth(), from.getHeight()).toBundle();
+        } else if (style == 1 && hasView) {
+            opts = ActivityOptions.makeClipRevealAnimation(from, 0, 0, from.getWidth(), from.getHeight()).toBundle();
+        } else if (style == 2) {
+            opts = ActivityOptions.makeCustomAnimation(a, android.R.anim.fade_in, android.R.anim.fade_out).toBundle();
+        }
         try {
             a.startActivity(i, opts);
         } catch (Exception ignored) {

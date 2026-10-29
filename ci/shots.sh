@@ -26,11 +26,12 @@ back() { adb shell input keyevent KEYCODE_BACK; sleep 1.5; }
 curl -sSL -o test.jpg "https://raw.githubusercontent.com/opencv/opencv/4.x/samples/data/fruits.jpg" || true
 adb shell mkdir -p /sdcard/Android/data/$PKG/files
 adb push test.jpg /sdcard/Android/data/$PKG/files/test.jpg || true
-adb shell cmd notification post -S bigtext -t "Salón Jardín" cotizacion "¿Me mandas la cotización para el sábado?" || true
-adb shell cmd notification post -S bigtext -t "Mamá" recado "No se te olvide pasar por las tortillas" || true
+adb shell "cmd notification post -S bigtext -t 'Salón Jardín' cotizacion '¿Me mandas la cotización para el sábado?'" || true
+adb shell "cmd notification post -S bigtext -t 'Mamá' recado 'No se te olvide pasar por las tortillas'" || true
 
 # Inicio y sus páginas
 start --ei theme 0 --es demo_city "Cuautla"; snap 01_inicio 10
+adb shell dumpsys meminfo $PKG | grep -E "TOTAL|Native Heap|Java Heap|Graphics" > "$OUT/memoria_al_abrir.txt" || true
 start --es shot page --ei tab 1; snap 02_pagina2 4
 start --es shot page --ei tab 0; sleep 2
 start --ei theme 5; snap 03_aurora 5
@@ -57,11 +58,13 @@ start --es shot done; sleep 2
 start --ez demo_free false; sleep 3
 
 # Estudio de personalización
-start --es shot studio --ei tab 2; snap 15_estudio_inicio 4
+start --es shot studio --ei tab 0; snap 14b_temas 5
 back
-start --es shot studio --ei tab 3; snap 16_estudio_iconos 4
+start --es shot studio --ei tab 3; snap 15_estudio_inicio 4
 back
-start --es shot studio --ei tab 4; snap 17_estudio_dock 4
+start --es shot studio --ei tab 4; snap 16_estudio_iconos 4
+back
+start --es shot studio --ei tab 5; snap 17_estudio_dock 4
 back
 
 # Panel con notificaciones que se pueden quitar
@@ -72,6 +75,11 @@ adb shell input swipe 540 1700 540 600 300; snap 20_cajon 4
 back
 start --es open calc --es expr "'sin(30)+√(16)×2^3'"; snap 21_calc 5
 back
+
+# Motor de temas: probar uno listo (sale la pregunta de quedárselo) y deshacer
+start --es shot tema --ei tab 1; snap 21b_tema_medianoche 7
+back
+start --es shot tema_undo; sleep 4
 
 # Fondo del sistema: recientes y pantalla de bloqueo deben verse con el fondo de Jostin OS
 start --ei theme 5; sleep 6

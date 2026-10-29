@@ -225,6 +225,9 @@ final class Prefs {
     /** 0 normal, 1 rápidas, 2 reducidas (casi sin movimiento), 3 apagadas. */
     static int motion(Context c) { return i(c, "motion", 0); }
     static void setMotion(Context c, int v) { put(c, "motion", v); }
+    /** Cómo se abren las apps: 0 desde el ícono, 1 revelar, 2 suave, 3 la del sistema. */
+    static int appAnim(Context c) { return i(c, "app_anim", 0); }
+    static void setAppAnim(Context c, int v) { put(c, "app_anim", v); }
 
     // ---------- Uso de apps (para sugerencias; se queda en el teléfono) ----------
     static java.util.Map<String, Integer> useCounts(Context c) {

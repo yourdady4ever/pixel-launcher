@@ -89,6 +89,7 @@ final class Safety {
 
     static String label(String tag) {
         try {
+            if (tag.startsWith("antes-tema")) return "Antes de aplicar un tema";
             if (tag.startsWith("antes-")) return "Antes de restablecer";
             Date d = new SimpleDateFormat("yyyyMMdd", Locale.US).parse(tag);
             return d == null ? tag : new SimpleDateFormat("EEEE d 'de' MMMM", MainActivity.ES).format(d);

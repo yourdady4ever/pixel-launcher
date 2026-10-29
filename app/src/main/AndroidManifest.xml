@@ -5,6 +5,8 @@
     <uses-permission android:name="android.permission.EXPAND_STATUS_BAR" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.SET_WALLPAPER" />
+    <!-- Brillo desde el panel; Android lo pide como permiso especial y tú decides -->
+    <uses-permission android:name="android.permission.WRITE_SETTINGS" />
     <!-- Solo para el widget de agenda; se pide al agregarlo -->
     <uses-permission android:name="android.permission.READ_CALENDAR" />
 
@@ -105,6 +107,17 @@
             <meta-data
                 android:name="android.accessibilityservice"
                 android:resource="@xml/lock_service" />
+        </service>
+        <!-- Protector de pantalla mientras carga -->
+        <service
+            android:name=".NightDream"
+            android:label="@string/dream_label"
+            android:exported="true"
+            android:permission="android.permission.BIND_DREAM_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.dreams.DreamService" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
         </service>
     </application>
 </manifest>

@@ -32,8 +32,8 @@ final class Studio {
         void chooseIconPack();
     }
 
-    static final String[] TABS = {"Fondo", "Color", "Inicio", "Íconos", "Dock", "Reloj", "Gestos", "Sonido"};
-    static final int TAB_HOME = 2, TAB_ICONS = 3, TAB_DOCK = 4;
+    static final String[] TABS = {"Temas", "Fondo", "Color", "Inicio", "Íconos", "Dock", "Reloj", "Gestos", "Avisos", "Sonido"};
+    static final int TAB_THEMES = 0, TAB_WALL = 1, TAB_HOME = 3, TAB_ICONS = 4, TAB_DOCK = 5;
     static WallStrip strip;
     private static int lastTab = 0;
 
@@ -70,13 +70,15 @@ final class Studio {
         col.setOrientation(LinearLayout.VERTICAL);
         col.setPadding(Ui.dp(a, 4), 0, Ui.dp(a, 4), Ui.dp(a, 10));
         switch (tab) {
-            case 0: wallpaper(a, h, col); break;
-            case 1: color(a, h, col); break;
-            case 2: home(a, h, col); break;
-            case 3: icons(a, h, col); break;
-            case 4: dock(a, h, col); break;
-            case 5: clock(a, h, col); break;
-            case 6: gestures(a, h, col); break;
+            case 0: ThemeStudio.fill(a, h, col); break;
+            case 1: wallpaper(a, h, col); break;
+            case 2: color(a, h, col); break;
+            case 3: home(a, h, col); break;
+            case 4: icons(a, h, col); break;
+            case 5: dock(a, h, col); break;
+            case 6: clock(a, h, col); break;
+            case 7: gestures(a, h, col); break;
+            case 8: notices(a, h, col); break;
             default: sound(a, h, col); break;
         }
         body.addView(col, new FrameLayout.LayoutParams(-1, -2));
@@ -352,6 +354,31 @@ final class Studio {
         col.addView(tip);
     }
 
+    // ---------- Avisos ----------
+
+    private static void notices(Activity a, Host h, LinearLayout col) {
+        if (!Media.hasAccess(a)) {
+            col.addView(Ctl.section(a, "Permiso"));
+            col.addView(Ctl.action(a, Widgets.BELL, "Dar permiso de notificaciones", "Necesario", v -> Media.requestAccess(a)));
+            TextView t = Ui.text(a, "Sin este permiso no se pueden ver tus avisos, la música que suena ni los puntos en los íconos. Jostin OS no guarda ni manda tus notificaciones a ningún lado.", 12, Ui.MUTED, Ui.REGULAR);
+            t.setLineSpacing(0, 1.2f);
+            t.setPadding(Ui.dp(a, 4), Ui.dp(a, 10), 0, 0);
+            col.addView(t);
+        }
+        col.addView(Ctl.section(a, "En el panel"));
+        col.addView(Ctl.toggle(a, "Mostrar notificaciones", "En el panel que baja deslizando desde el centro de inicio.", Prefs.notesInPanel(a), v -> Prefs.setNotesInPanel(a, v)));
+        col.addView(Ctl.toggle(a, "Ocultar el contenido", "Solo se ve de qué app es y el título, no el mensaje. Útil si alguien más ve tu pantalla.", Prefs.notesPrivate(a), v -> Prefs.setNotesPrivate(a, v)));
+        col.addView(Ctl.section(a, "En los íconos"));
+        col.addView(Ctl.toggle(a, "Puntos de notificación", null, Prefs.badges(a), v -> {
+            Prefs.setBadges(a, v);
+            h.applyHome();
+        }));
+        TextView t = Ui.text(a, "La barra que baja desde el borde de arriba es la de Android: su diseño no lo puede cambiar ninguna app. Deslizar una notificación en el panel de Jostin sí la quita de Android también.", 12, Ui.MUTED, Ui.REGULAR);
+        t.setLineSpacing(0, 1.2f);
+        t.setPadding(Ui.dp(a, 4), Ui.dp(a, 14), 0, 0);
+        col.addView(t);
+    }
+
     // ---------- Gestos ----------
 
     private static void gestures(Activity a, Host h, LinearLayout col) {
@@ -389,6 +416,8 @@ final class Studio {
             Prefs.setMotion(a, v);
             h.applyHome();
         }));
+        col.addView(Ctl.section(a, "Al abrir una app"));
+        col.addView(Ctl.chips(a, new String[]{"Desde el ícono", "Revelar", "Suave", "Del sistema"}, Prefs.appAnim(a), v -> Prefs.setAppAnim(a, v)));
         TextView mt = Ui.text(a, "«Reducidas» quita los giros y acercamientos para quien se marea con el movimiento. Si en Android activas «Quitar animaciones», también se respeta.", 12, Ui.MUTED, Ui.REGULAR);
         mt.setLineSpacing(0, 1.2f);
         mt.setPadding(Ui.dp(a, 4), Ui.dp(a, 10), 0, 0);
@@ -404,8 +433,23 @@ final class Studio {
                     Prefs.setSmooth(a, v);
                     h.backdrop().setSmooth(v);
                 }));
+        col.addView(Ctl.section(a, "Pantalla de bloqueo y carga"));
+        col.addView(Ctl.action(a, Icons.HISTORY, "Reloj mientras carga", "Protector", v -> {
+            try {
+                a.startActivity(new Intent(Settings.ACTION_DREAM_SETTINGS));
+            } catch (Exception ignored) {
+                // nada
+            }
+        }));
+        TextView lk = Ui.text(a, "En «Protector de pantalla» elige «Reloj de Jostin OS» y se verá tu fondo con el reloj cuando cargues el teléfono. El fondo de la pantalla de bloqueo se cambia en Fondo > También en la pantalla de bloqueo.", 12, Ui.MUTED, Ui.REGULAR);
+        lk.setLineSpacing(0, 1.2f);
+        lk.setPadding(Ui.dp(a, 4), Ui.dp(a, 10), 0, 0);
+        col.addView(lk);
         View gap = new View(a);
         col.addView(gap, new LinearLayout.LayoutParams(1, Ui.dp(a, 12)));
+        col.addView(Ctl.action(a, Icons.INFO, "Lo que Android no deja cambiar", null, v -> limits(a, h)));
+        View gap3 = new View(a);
+        col.addView(gap3, new LinearLayout.LayoutParams(1, Ui.dp(a, 8)));
         col.addView(Ctl.action(a, Icons.HOME, "Pantalla de inicio del teléfono", null, v -> {
             try {
                 a.startActivity(new Intent(Settings.ACTION_HOME_SETTINGS));
@@ -413,6 +457,34 @@ final class Studio {
                 // nada
             }
         }));
+    }
+
+    /** Lo que una app de inicio no puede hacer en Android, dicho claro. */
+    private static void limits(Activity a, Host h) {
+        String[][] items = {
+                {"Pantalla de bloqueo", "Ninguna app puede reemplazarla ni cambiar cómo pides tu PIN o huella. Jostin OS solo le pone tu fondo y el reloj de carga."},
+                {"Barra de notificaciones y ajustes rápidos", "La que baja desde el borde de arriba es de Android. Su diseño no se puede cambiar; el panel de Jostin baja deslizando desde el centro."},
+                {"Wi-Fi, Bluetooth y datos", "Desde Android 10 las apps no pueden prenderlos o apagarlos directo. Jostin abre el panel de Android para que lo hagas con un toque."},
+                {"Brillo", "Funciona solo si le das el permiso de «Modificar ajustes del sistema»."},
+                {"Bloquear con doble toque", "Android solo deja hacerlo con un servicio de accesibilidad, que tú activas y puedes quitar cuando quieras."},
+                {"Widgets de otras apps", "Algunos no cambian de tamaño o no se pueden configurar de nuevo; eso lo decide cada app."},
+                {"Atajos de las apps", "Android solo se los da a la app de inicio que tengas como predeterminada."},
+                {"Play Protect", "Por instalarse fuera de Play Store, Android puede pedir confirmación extra al dar permisos de notificaciones o accesibilidad."}};
+        LinearLayout col = new LinearLayout(a);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setPadding(Ui.dp(a, 8), 0, Ui.dp(a, 8), Ui.dp(a, 10));
+        for (String[] it : items) {
+            TextView t = Ui.text(a, it[0], 15, Ui.TEXT, Ui.SEMIBOLD);
+            t.setPadding(0, Ui.dp(a, 14), 0, 0);
+            col.addView(t);
+            TextView d = Ui.text(a, it[1], 13, Ui.MUTED, Ui.REGULAR);
+            d.setLineSpacing(0, 1.2f);
+            d.setPadding(0, Ui.dp(a, 4), 0, 0);
+            col.addView(d);
+        }
+        TextView head = Ui.label(a, "Lo que Android no deja cambiar");
+        head.setPadding(Ui.dp(a, 8), 0, 0, Ui.dp(a, 4));
+        Sheet.panel(a, h.backdrop(), head, col, 0.6f, 0x33000000);
     }
 
     private static String shorten(String s) {

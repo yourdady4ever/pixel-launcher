@@ -165,6 +165,11 @@ final class Sheet {
 
     /** Pregunta de sí o no. */
     static void confirm(Activity a, Backdrop b, String title, String message, String ok, boolean danger, Runnable onOk) {
+        confirm(a, b, title, message, ok, danger, onOk, null);
+    }
+
+    /** Igual, y onCancel corre si eligen «Cancelar» (o el botón que diga cancelText). */
+    static void confirm(Activity a, Backdrop b, String title, String message, String ok, boolean danger, Runnable onOk, Runnable onCancel) {
         LinearLayout card = card(a, b, null);
         int side = Ui.dp(a, 10);
         TextView t = Ui.text(a, title, 19, Ui.TEXT, Ui.SEMIBOLD);
@@ -177,7 +182,7 @@ final class Sheet {
             card.addView(m);
         }
         LinearLayout buttons = new LinearLayout(a);
-        TextView cancel = button(a, "Cancelar", Ui.SOFT, Ui.TEXT);
+        TextView cancel = button(a, onCancel != null ? "Deshacer" : "Cancelar", Ui.SOFT, Ui.TEXT);
         TextView yes = button(a, ok, danger ? 0xFFE5484D : Theme.accent, danger ? 0xFFFFFFFF : Theme.onAccent);
         LinearLayout.LayoutParams l1 = new LinearLayout.LayoutParams(0, Ui.dp(a, 52), 1f);
         l1.rightMargin = Ui.dp(a, 5);
@@ -190,7 +195,7 @@ final class Sheet {
         card.addView(buttons, blp);
         cancel.setOnClickListener(v -> {
             Sound.play(v, Sound.BACK);
-            dismiss(a, null);
+            dismiss(a, onCancel);
         });
         yes.setOnClickListener(v -> {
             Sound.play(v, danger ? Sound.HOLD : Sound.TAP);
