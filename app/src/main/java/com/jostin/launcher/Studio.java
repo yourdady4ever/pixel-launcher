@@ -141,7 +141,7 @@ final class Studio {
                     Prefs.setAnimated(a, v);
                     h.backdrop().setAnimated(v);
                 }));
-        col.addView(Ctl.toggle(a, "Usar en todo el teléfono", "Pone este fondo también en el sistema, para que el viejo no aparezca en apps recientes ni al cambiar de app. Android ajusta sus colores a este fondo.",
+        col.addView(Ctl.toggle(a, "Usar en todo el teléfono", "Pone este fondo también en el sistema para que el viejo no aparezca en apps recientes ni al cambiar de app. Se aplica cuando sales de inicio, porque Android ajusta sus colores a este fondo y vuelve a abrir las pantallas.",
                 Prefs.syncSystem(a), v -> {
                     Prefs.setSyncSystem(a, v);
                     Prefs.setSyncedKey(a, "");

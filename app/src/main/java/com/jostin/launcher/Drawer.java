@@ -147,6 +147,7 @@ class Drawer extends FrameLayout {
     private final TextView empty;
     private final View webRow;
     private final TextView webText;
+    private final LinearLayout suggestRow;
     private final LinearLayout column;
     private float downY;
     private boolean dragging = false;
@@ -224,6 +225,12 @@ class Drawer extends FrameLayout {
         web.setVisibility(GONE);
         webRow = web;
         column.addView(web, new LinearLayout.LayoutParams(-1, -2));
+
+        // Las apps que más usas (se cuenta solo en tu teléfono)
+        suggestRow = new LinearLayout(a);
+        suggestRow.setVisibility(GONE);
+        suggestRow.setPadding(0, Ui.dp(a, 16), 0, Ui.dp(a, 4));
+        column.addView(suggestRow, new LinearLayout.LayoutParams(-1, -2));
 
         grid = new GridView(a);
         grid.setNumColumns(4);
@@ -304,8 +311,48 @@ class Drawer extends FrameLayout {
         empty.setText("No encontré esa app");
         webRow.setVisibility(none && !pick ? VISIBLE : GONE);
         webText.setText("Buscar «" + search.getText().toString().trim() + "» en internet");
+        fillSuggestions(q.isEmpty() && !pick && Prefs.drawerSuggest(act));
         adapter.notifyDataSetChanged();
         if (animate) grid.scheduleLayoutAnimation();
+    }
+
+    private void fillSuggestions(boolean on) {
+        suggestRow.removeAllViews();
+        List<String> pkgs = on ? IconEngine.suggestions(act, 4, Prefs.hidden(act)) : new ArrayList<>();
+        if (pkgs.size() < 2) {
+            suggestRow.setVisibility(GONE);
+            return;
+        }
+        for (String pkg : pkgs) {
+            App x = null;
+            for (App y : all) if (y.pkg.equals(pkg)) x = y;
+            if (x == null) continue;
+            final App app = x;
+            LinearLayout cell = new LinearLayout(act);
+            cell.setOrientation(LinearLayout.VERTICAL);
+            cell.setGravity(Gravity.CENTER_HORIZONTAL);
+            ImageView icon = new ImageView(act);
+            icon.setImageDrawable(icon(act, pkg));
+            IconEngine.clip(icon, pkg);
+            cell.addView(icon, new LinearLayout.LayoutParams(Ui.dp(act, 56), Ui.dp(act, 56)));
+            TextView label = Ui.text(act, app.label, 12, Theme.accent, Ui.MEDIUM);
+            label.setGravity(Gravity.CENTER);
+            label.setMaxLines(1);
+            label.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+            lp.topMargin = Ui.dp(act, 8);
+            cell.addView(label, lp);
+            Ui.pressable(cell, 0.9f);
+            cell.setOnClickListener(v -> choose(app, icon));
+            cell.setOnLongClickListener(v -> {
+                Sound.play(v, Sound.HOLD);
+                host.appActions(app, v);
+                return true;
+            });
+            suggestRow.addView(cell, new LinearLayout.LayoutParams(0, -2, 1f));
+        }
+        for (int k = suggestRow.getChildCount(); k < 4; k++) suggestRow.addView(new View(act), new LinearLayout.LayoutParams(0, 1, 1f));
+        suggestRow.setVisibility(VISIBLE);
     }
 
     private void webSearch() {

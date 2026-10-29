@@ -24,12 +24,39 @@ final class SystemWall {
 
     private SystemWall() {}
 
-    /** Programa la sincronización; si llegan varios cambios seguidos solo se hace la última. */
+    private static boolean visible = false, wanted = false;
+
+    /**
+     * Pide sincronizar. Si inicio está a la vista se deja para cuando salgas: al cambiar el fondo
+     * del sistema, Android recalcula sus colores y vuelve a abrir las pantallas, y así no se nota.
+     */
     static void sync(Context c) {
-        Context app = c.getApplicationContext();
+        if (visible) {
+            wanted = true;
+            return;
+        }
+        schedule(c.getApplicationContext(), 300);
+    }
+
+    /** MainActivity avisa cuando inicio se ve o se deja de ver. */
+    static void setVisible(Context c, boolean v) {
+        visible = v;
+        if (v) {
+            if (pending != null) {
+                main.removeCallbacks(pending);
+                pending = null;
+                wanted = true;
+            }
+        } else if (wanted) {
+            wanted = false;
+            schedule(c.getApplicationContext(), 150);
+        }
+    }
+
+    private static void schedule(Context app, long delay) {
         if (pending != null) main.removeCallbacks(pending);
         pending = () -> run(app);
-        main.postDelayed(pending, 1500);
+        main.postDelayed(pending, delay);
     }
 
     private static String key(Context c) {

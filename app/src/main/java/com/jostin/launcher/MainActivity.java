@@ -131,6 +131,7 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
         // Android rehace la pantalla cuando cambian los colores del sistema (al cambiar el fondo): se vuelve a la misma página
         home.page = savedPage;
         backdrop.useCurrent();
+        SystemWall.setVisible(this, true);
         SystemWall.sync(this);
         IntentFilter f = new IntentFilter();
         f.addAction(Intent.ACTION_PACKAGE_ADDED);
@@ -445,6 +446,7 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
     @Override
     protected void onStart() {
         super.onStart();
+        SystemWall.setVisible(this, true);
         backdrop.setAnimated(Prefs.animated(this));
         backdrop.setParallax(Prefs.parallax(this) && Prefs.motion(this) < 2);
         backdrop.setSmooth(Prefs.smooth(this));
@@ -468,6 +470,7 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
     @Override
     protected void onStop() {
         super.onStop();
+        SystemWall.setVisible(this, false);
         backdrop.setRunning(false);
         AppWidgets.stop(this);
         home.stop();

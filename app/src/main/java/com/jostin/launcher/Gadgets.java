@@ -1911,6 +1911,13 @@ final class Gadgets {
         View iconView() {
             return icon;
         }
+
+        // Al presionar, el ícono se hunde un poco (sin pelearse con el arrastre de inicio)
+        @Override
+        protected void dispatchSetPressed(boolean pressed) {
+            super.dispatchSetPressed(pressed);
+            icon.animate().scaleX(pressed ? 0.88f : 1f).scaleY(pressed ? 0.88f : 1f).setDuration(pressed ? 90 : 220).start();
+        }
     }
 
     // ==================== Carpeta ====================
@@ -1963,6 +1970,12 @@ final class Gadgets {
                 if (d != null) icons.add(d);
             }
             box.set(icons);
+        }
+
+        @Override
+        protected void dispatchSetPressed(boolean pressed) {
+            super.dispatchSetPressed(pressed);
+            box.animate().scaleX(pressed ? 0.9f : 1f).scaleY(pressed ? 0.9f : 1f).setDuration(pressed ? 90 : 220).start();
         }
 
         void setBadges(Set<String> set) {
