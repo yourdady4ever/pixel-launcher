@@ -1,0 +1,46 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.jostin.launcher'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.jostin.launcher'
+        minSdk 26
+        targetSdk 34
+        versionCode Integer.parseInt(System.getenv('GITHUB_RUN_NUMBER') ?: '1')
+        versionName "1.0." + (System.getenv('GITHUB_RUN_NUMBER') ?: '1')
+    }
+
+    signingConfigs {
+        fixed {
+            // Llave fija para que cada versión nueva se instale encima de la anterior
+            storeFile file('launcher.keystore')
+            storePassword 'android'
+            keyAlias 'jostin'
+            keyPassword 'android'
+        }
+    }
+
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.fixed
+        }
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.fixed
+        }
+    }
+
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
