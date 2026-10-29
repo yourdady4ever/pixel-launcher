@@ -2,46 +2,50 @@ package com.jostin.launcher;
 
 import android.app.Activity;
 import android.content.Context;
-import android.content.res.AssetFileDescriptor;
 import android.graphics.Color;
-import android.graphics.ColorMatrix;
-import android.graphics.ColorMatrixColorFilter;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
-import android.media.AudioAttributes;
-import android.media.SoundPool;
 import android.text.InputType;
-import android.view.Gravity;
-import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
 import android.view.animation.DecelerateInterpolator;
 import android.view.animation.OvershootInterpolator;
-import android.widget.EditText;
-import android.widget.ImageView;
 import android.widget.TextView;
 
-/** Colores, tamaños, sonidos y animaciones compartidas. Estilo monocromático tipo vidrio. */
+/** Colores, tipografías, tamaños y la animación de toque compartida por toda la app. */
 final class Ui {
-    static final int BG = 0xFF0E0F11;
-    static final int GLASS = 0xD91B1D21;
-    static final int GLASS_LIGHT = 0x26FFFFFF;
-    static final int TEXT = 0xFFF2F2F2;
-    static final int MUTED = 0xFF9A9DA3;
-    static final int ACCENT = 0xFFE8E8E8;
-    static final int RED = 0xFFD7262E;
+    static final int BG = 0xFF0C0D10;
+    static final int TEXT = 0xFFF5F6F8;
+    static final int MUTED = 0xFFA2A7B0;
+    static final int FAINT = 0x66FFFFFF;
+    static final int LINE = 0x1FFFFFFF;
+    static final int SOFT = 0x14FFFFFF;
+    static final int INK = 0xFF0E0F12;
 
-    static final Typeface THIN = Typeface.create("sans-serif-thin", Typeface.NORMAL);
-    static final Typeface LIGHT = Typeface.create("sans-serif-light", Typeface.NORMAL);
-    static final Typeface MEDIUM = Typeface.create("sans-serif-medium", Typeface.NORMAL);
-
-    private static SoundPool pool;
-    private static int clickId = 0, openId = 0;
+    static Typeface DISPLAY, THIN, LIGHT, REGULAR, MEDIUM, SEMIBOLD;
 
     private Ui() {}
+
+    static void init(Context c) {
+        if (DISPLAY != null) return;
+        DISPLAY = font(c, "michroma");
+        THIN = font(c, "inter_display_thin");
+        LIGHT = font(c, "inter_light");
+        REGULAR = font(c, "inter_regular");
+        MEDIUM = font(c, "inter_medium");
+        SEMIBOLD = font(c, "inter_semibold");
+    }
+
+    private static Typeface font(Context c, String name) {
+        try {
+            return Typeface.createFromAsset(c.getAssets(), "fonts/" + name + ".ttf");
+        } catch (Exception e) {
+            return Typeface.DEFAULT;
+        }
+    }
 
     static int dp(Context c, float v) {
         return Math.round(v * c.getResources().getDisplayMetrics().density);
@@ -51,13 +55,8 @@ final class Ui {
         return (color & 0x00FFFFFF) | (a << 24);
     }
 
-    /** Panel oscuro semitransparente con borde fino. */
-    static GradientDrawable glass(Context c, float radiusDp) {
-        GradientDrawable g = new GradientDrawable();
-        g.setColor(GLASS);
-        g.setCornerRadius(dp(c, radiusDp));
-        g.setStroke(dp(c, 1), alpha(Color.WHITE, 0x1F));
-        return g;
+    static int alphaOf(int color) {
+        return (color >>> 24) & 0xFF;
     }
 
     static GradientDrawable fill(Context c, int color, float radiusDp) {
@@ -67,53 +66,31 @@ final class Ui {
         return g;
     }
 
+    static GradientDrawable outline(Context c, int fill, int stroke, float radiusDp) {
+        GradientDrawable g = fill(c, fill, radiusDp);
+        g.setStroke(Math.max(1, dp(c, 1)), stroke);
+        return g;
+    }
+
     static TextView text(Context c, String s, float sp, int color, Typeface tf) {
         TextView t = new TextView(c);
         t.setText(s);
         t.setTextSize(sp);
         t.setTextColor(color);
-        if (tf != null) t.setTypeface(tf);
+        t.setTypeface(tf != null ? tf : REGULAR);
+        t.setIncludeFontPadding(false);
         return t;
     }
 
-    static EditText input(Context c, String hint, boolean number) {
-        EditText e = new EditText(c);
-        e.setHint(hint);
-        e.setHintTextColor(MUTED);
-        e.setTextColor(TEXT);
-        e.setTextSize(17);
-        e.setSingleLine(true);
-        e.setBackground(fill(c, GLASS_LIGHT, 14));
-        int p = dp(c, 14);
-        e.setPadding(p, p, p, p);
-        if (number) e.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
-        return e;
+    /** Etiqueta pequeña en mayúsculas espaciadas, para secciones. */
+    static TextView label(Context c, String s) {
+        TextView t = text(c, s.toUpperCase(MainActivity.ES), 11, MUTED, SEMIBOLD);
+        t.setLetterSpacing(0.18f);
+        return t;
     }
 
-    static TextView button(Context c, String s) {
-        TextView b = text(c, s, 15, TEXT, MEDIUM);
-        b.setGravity(Gravity.CENTER);
-        b.setBackground(glass(c, 16));
-        int p = dp(c, 14);
-        b.setPadding(p, p, p, p);
-        pressable(b);
-        return b;
-    }
-
-    /** Botón de selección: blanco si está activo, vidrio si no. */
-    static void chip(Context c, TextView t, boolean active) {
-        t.setBackground(active ? fill(c, ACCENT, 16) : glass(c, 16));
-        t.setTextColor(active ? 0xFF111111 : TEXT);
-    }
-
-    static void grayscale(ImageView v, boolean on) {
-        if (on) {
-            ColorMatrix m = new ColorMatrix();
-            m.setSaturation(0f);
-            v.setColorFilter(new ColorMatrixColorFilter(m));
-        } else {
-            v.clearColorFilter();
-        }
+    static void numericInput(android.widget.EditText e) {
+        e.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
     }
 
     /** Pantalla completa con barras transparentes. */
@@ -122,6 +99,10 @@ final class Ui {
         w.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
         w.setStatusBarColor(Color.TRANSPARENT);
         w.setNavigationBarColor(Color.TRANSPARENT);
+        if (android.os.Build.VERSION.SDK_INT >= 29) {
+            w.setNavigationBarContrastEnforced(false);
+            w.setStatusBarContrastEnforced(false);
+        }
         w.setBackgroundDrawable(new ColorDrawable(BG));
         setLightBars(a, lightBars);
     }
@@ -134,18 +115,22 @@ final class Ui {
         a.getWindow().getDecorView().setSystemUiVisibility(flags);
     }
 
-    /** Se hunde al tocar y rebota al soltar. */
+    /** Se hunde y se aclara al tocar; rebota al soltar. */
     static void pressable(View v) {
+        pressable(v, 0.94f);
+    }
+
+    static void pressable(View v, float scale) {
         v.setOnTouchListener((view, e) -> {
             switch (e.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
-                    view.animate().scaleX(0.9f).scaleY(0.9f).setDuration(90)
+                    view.animate().scaleX(scale).scaleY(scale).alpha(0.82f).setStartDelay(0).setDuration(110)
                             .setInterpolator(new DecelerateInterpolator()).start();
                     break;
                 case MotionEvent.ACTION_UP:
                 case MotionEvent.ACTION_CANCEL:
-                    view.animate().scaleX(1f).scaleY(1f).setDuration(280)
-                            .setInterpolator(new OvershootInterpolator(3f)).start();
+                    view.animate().scaleX(1f).scaleY(1f).alpha(1f).setStartDelay(0).setDuration(340)
+                            .setInterpolator(new OvershootInterpolator(2.4f)).start();
                     break;
                 default:
                     break;
@@ -154,32 +139,20 @@ final class Ui {
         });
     }
 
-    static void initSounds(Context c) {
-        if (pool != null) return;
-        try {
-            pool = new SoundPool.Builder()
-                    .setMaxStreams(3)
-                    .setAudioAttributes(new AudioAttributes.Builder()
-                            .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
-                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                            .build())
-                    .build();
-            AssetFileDescriptor a = c.getAssets().openFd("click.wav");
-            clickId = pool.load(a, 1);
-            AssetFileDescriptor b = c.getAssets().openFd("open.wav");
-            openId = pool.load(b, 1);
-        } catch (Exception ignored) {
-            // Sin sonido el launcher sigue funcionando igual
-        }
+    /** Sacudida corta, para errores. */
+    static void shake(View v) {
+        float d = v.getResources().getDisplayMetrics().density;
+        v.animate().cancel();
+        android.animation.ObjectAnimator.ofFloat(v, "translationX", 0, 10 * d, -9 * d, 7 * d, -5 * d, 3 * d, 0)
+                .setDuration(380).start();
     }
 
-    static void click(View v) {
-        v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
-        if (pool != null && clickId != 0 && Prefs.sounds(v.getContext())) pool.play(clickId, 0.5f, 0.5f, 1, 0, 1f);
-    }
-
-    static void open(View v) {
-        v.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK);
-        if (pool != null && openId != 0 && Prefs.sounds(v.getContext())) pool.play(openId, 0.6f, 0.6f, 1, 0, 1f);
+    /** Animación estándar de entrada: sube y aparece, con retraso escalonado. */
+    static void rise(View v, int index, float fromDp) {
+        float d = v.getResources().getDisplayMetrics().density;
+        v.setAlpha(0f);
+        v.setTranslationY(fromDp * d);
+        v.animate().alpha(1f).translationY(0).setStartDelay(60L + index * 45L).setDuration(480)
+                .setInterpolator(new DecelerateInterpolator(2.2f)).start();
     }
 }

@@ -99,12 +99,37 @@ final class Prefs {
         sp(c).edit().putInt("theme", t).apply();
     }
 
-    static boolean grayIcons(Context c) {
-        return sp(c).getBoolean("gray_icons", false);
+    /** Íconos de apps en estilo monocromo (blanco sobre vidrio). */
+    static boolean monoIcons(Context c) {
+        return sp(c).getBoolean("mono_icons", true);
     }
 
-    static void setGrayIcons(Context c, boolean on) {
-        sp(c).edit().putBoolean("gray_icons", on).apply();
+    static void setMonoIcons(Context c, boolean on) {
+        sp(c).edit().putBoolean("mono_icons", on).apply();
+    }
+
+    static boolean parallax(Context c) {
+        return sp(c).getBoolean("parallax", true);
+    }
+
+    static void setParallax(Context c, boolean on) {
+        sp(c).edit().putBoolean("parallax", on).apply();
+    }
+
+    static String history(Context c) {
+        return sp(c).getString("calc_history", "[]");
+    }
+
+    static void setHistory(Context c, String json) {
+        sp(c).edit().putString("calc_history", json).apply();
+    }
+
+    static boolean degrees(Context c) {
+        return sp(c).getBoolean("calc_deg", true);
+    }
+
+    static void setDegrees(Context c, boolean on) {
+        sp(c).edit().putBoolean("calc_deg", on).apply();
     }
 
     static boolean animated(Context c) {

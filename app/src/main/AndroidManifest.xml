@@ -40,16 +40,19 @@
         <activity
             android:name=".AppsActivity"
             android:exported="false"
-            android:windowSoftInputMode="adjustResize|stateVisible" />
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="adjustResize" />
 
         <activity
-            android:name=".ObraActivity"
+            android:name=".CalcActivity"
             android:exported="false"
+            android:screenOrientation="portrait"
             android:windowSoftInputMode="adjustResize" />
 
         <activity
             android:name=".PendientesActivity"
             android:exported="false"
+            android:screenOrientation="portrait"
             android:windowSoftInputMode="adjustResize" />
     </application>
 </manifest>
