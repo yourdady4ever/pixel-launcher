@@ -174,4 +174,77 @@ final class Prefs {
     static void setHistory(Context c, String json) { put(c, "calc_history", json); }
     static boolean degrees(Context c) { return b(c, "calc_deg", true); }
     static void setDegrees(Context c, boolean on) { put(c, "calc_deg", on); }
+
+    // ---------- Home Studio ----------
+    static boolean homeFree(Context c) { return b(c, "home_free", false); }
+    static void setHomeFree(Context c, boolean on) { put(c, "home_free", on); }
+    static boolean homeLocked(Context c) { return b(c, "home_locked", false); }
+    static void setHomeLocked(Context c, boolean on) { put(c, "home_locked", on); }
+    /** 0 deslizar, 1 desvanecer, 2 zoom, 3 cubo, 4 voltear, 5 pila, 6 profundidad, 7 paralaje. */
+    static int pageAnim(Context c) { return i(c, "page_anim", 0); }
+    static void setPageAnim(Context c, int v) { put(c, "page_anim", v); }
+    static boolean homeLabels(Context c) { return b(c, "home_labels", true); }
+    static void setHomeLabels(Context c, boolean on) { put(c, "home_labels", on); }
+    static boolean badges(Context c) { return b(c, "badges", true); }
+    static void setBadges(Context c, boolean on) { put(c, "badges", on); }
+    static String userName(Context c) { return s(c, "user_name", "Jostin"); }
+    static void setUserName(Context c, String v) { put(c, "user_name", v); }
+
+    // ---------- Íconos ----------
+    static int iconShape(Context c) { return i(c, "icon_shape", 0); }
+    static void setIconShape(Context c, int v) { put(c, "icon_shape", v); }
+    static int iconScale(Context c) { return i(c, "icon_scale", 100); }
+    static void setIconScale(Context c, int v) { put(c, "icon_scale", v); }
+    static boolean iconGlow(Context c) { return b(c, "icon_glow", false); }
+    static void setIconGlow(Context c, boolean on) { put(c, "icon_glow", on); }
+    static String iconPack(Context c) { return s(c, "icon_pack", null); }
+    static void setIconPack(Context c, String pkg) {
+        if (pkg == null) sp(c).edit().remove("icon_pack").apply();
+        else put(c, "icon_pack", pkg);
+    }
+
+    // ---------- Dock ----------
+    static int dockIconSize(Context c) { return i(c, "dock_icon", 44); }
+    static void setDockIconSize(Context c, int v) { put(c, "dock_icon", v); }
+    static int dockSpacing(Context c) { return i(c, "dock_space", 3); }
+    static void setDockSpacing(Context c, int v) { put(c, "dock_space", v); }
+    static boolean dockGlass(Context c) { return b(c, "dock_glass", true); }
+    static void setDockGlass(Context c, boolean on) { put(c, "dock_glass", on); }
+    static boolean dockSuggest(Context c) { return b(c, "dock_suggest", false); }
+    static void setDockSuggest(Context c, boolean on) { put(c, "dock_suggest", on); }
+    static boolean drawerSuggest(Context c) { return b(c, "drawer_suggest", true); }
+    static void setDrawerSuggest(Context c, boolean on) { put(c, "drawer_suggest", on); }
+
+    // ---------- Notificaciones ----------
+    static boolean notesPrivate(Context c) { return b(c, "notes_private", false); }
+    static void setNotesPrivate(Context c, boolean on) { put(c, "notes_private", on); }
+    static boolean notesInPanel(Context c) { return b(c, "notes_panel", true); }
+    static void setNotesInPanel(Context c, boolean on) { put(c, "notes_panel", on); }
+
+    // ---------- Animaciones ----------
+    /** 0 normal, 1 rápidas, 2 reducidas (casi sin movimiento), 3 apagadas. */
+    static int motion(Context c) { return i(c, "motion", 0); }
+    static void setMotion(Context c, int v) { put(c, "motion", v); }
+
+    // ---------- Uso de apps (para sugerencias; se queda en el teléfono) ----------
+    static java.util.Map<String, Integer> useCounts(Context c) {
+        java.util.Map<String, Integer> m = new java.util.HashMap<>();
+        try {
+            org.json.JSONObject o = new org.json.JSONObject(s(c, "use_counts", "{}"));
+            java.util.Iterator<String> it = o.keys();
+            while (it.hasNext()) {
+                String k = it.next();
+                m.put(k, o.optInt(k));
+            }
+        } catch (Exception ignored) {
+            // vacío
+        }
+        return m;
+    }
+
+    static void countLaunch(Context c, String pkg) {
+        java.util.Map<String, Integer> m = useCounts(c);
+        m.put(pkg, (m.containsKey(pkg) ? m.get(pkg) : 0) + 1);
+        put(c, "use_counts", new org.json.JSONObject(m).toString());
+    }
 }

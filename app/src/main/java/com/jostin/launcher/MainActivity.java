@@ -1,7 +1,12 @@
 package com.jostin.launcher;
 
+import android.Manifest;
 import android.app.Activity;
 import android.app.ActivityOptions;
+import android.app.DatePickerDialog;
+import android.app.NotificationManager;
+import android.appwidget.AppWidgetManager;
+import android.appwidget.AppWidgetProviderInfo;
 import android.content.ActivityNotFoundException;
 import android.content.BroadcastReceiver;
 import android.content.ComponentCallbacks2;
@@ -12,14 +17,16 @@ import android.content.pm.PackageManager;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.RectF;
-import android.graphics.drawable.Drawable;
+import android.media.AudioManager;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.AlarmClock;
 import android.provider.MediaStore;
 import android.provider.Settings;
-import android.view.GestureDetector;
+import android.speech.RecognizerIntent;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.VelocityTracker;
@@ -30,59 +37,76 @@ import android.view.animation.OvershootInterpolator;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.TextView;
 
 import org.json.JSONArray;
-import org.json.JSONObject;
 
 import java.io.File;
+import java.text.SimpleDateFormat;
+import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.Collections;
+import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
-public class MainActivity extends Activity implements Studio.Host, Dashboard.Host, Drawer.Host, Backdrop.Listener {
+public class MainActivity extends Activity implements Studio.Host, Dashboard.Host, Drawer.Host, Backdrop.Listener, Media.Listener {
     static final Locale ES = new Locale("es", "MX");
-    private static final int REQ_PICK = 100, REQ_PHOTO = 200;
-    private static final String CLAUDE_PKG = "com.anthropic.claude";
+    static final int REQ_PICK = 100, REQ_PHOTO = 200, REQ_ADD_APP = 300, REQ_BIND = 301, REQ_CONFIG = 302,
+            REQ_GADGET_PHOTO = 303, REQ_ICON = 304, REQ_FOLDER_ADD = 305, REQ_CAL = 7;
+    static final String CLAUDE_PKG = "com.anthropic.claude";
 
-    private final Handler handler = new Handler(Looper.getMainLooper());
+    final Handler handler = new Handler(Looper.getMainLooper());
     private Backdrop backdrop;
     private FrameLayout root, content, overlay;
-    private ClockView clock;
-    private LinearLayout bottomBox, dock, panelsView;
-    private Widgets.MusicCard musicCard;
-    private TextView studySub, tasksSub;
-    private StudyIcon studyIcon;
+    HomeView home;
+    private LinearLayout bottomBox, dock;
+    private ImageView drawerButton;
+    private View dockSep;
     private Dashboard dashboard;
     private Drawer drawer;
-    private final List<View> panels = new ArrayList<>();
     private final FrameLayout[] dockSlots = new FrameLayout[Prefs.SLOTS];
     private final ImageView[] dockIcons = new ImageView[Prefs.SLOTS];
-    private GestureDetector gestures;
-    private boolean wasStudying = false, drawerOpen = false;
-    private int insetTop = 0;
+    private final View[] dockBadges = new View[Prefs.SLOTS];
+    private final String[] dockShown = new String[Prefs.SLOTS];
+    private boolean wasStudying = false, drawerOpen = false, recovered = false;
+    private int insetTop = 0, insetBottom = 0;
+    private Set<String> badges = new HashSet<>();
+    private int lookAccent = 0;
+    private boolean lookLight = false;
 
-    // Arrastre desde inicio
-    private static final int DRAG_NONE = 0, DRAG_DRAWER = 1, DRAG_DASH = 2, DRAG_DONE = 3;
-    private int drag = DRAG_NONE;
-    private float downX, downY;
-    private VelocityTracker vt;
-    private int slop;
+    // Cosas en espera mientras otra pantalla responde
+    private HomeModel.Item pendingItem;
+    private String pendingPkg;
+    private int pendingWidget = -1;
+
+    // Arrastre vertical desde inicio (cajón o panel)
+    private static final int V_NONE = 0, V_DRAWER = 1, V_DASH = 2, V_DONE = 3;
+    private int vdrag = V_NONE;
 
     private final Runnable ticker = new Runnable() {
         @Override
         public void run() {
-            clock.refresh();
+            home.tick();
             refreshStudy();
             handler.postDelayed(this, 15_000);
         }
     };
 
+    private final Runnable stable = () -> Safety.stable(this);
+
     private final BroadcastReceiver packages = new BroadcastReceiver() {
         @Override
         public void onReceive(Context c, Intent i) {
             Drawer.invalidateApps();
+            Drawer.trim();
+            String pkg = i.getData() != null ? i.getData().getSchemeSpecificPart() : null;
+            boolean replacing = i.getBooleanExtra(Intent.EXTRA_REPLACING, false);
+            if (pkg != null && pkg.equals(Prefs.iconPack(MainActivity.this))) IconEngine.Pack.reset();
+            if (Intent.ACTION_PACKAGE_REMOVED.equals(i.getAction()) && !replacing && pkg != null) removeApp(pkg);
+            else if (pkg != null) refreshIcons(pkg);
             refreshDock();
         }
     };
@@ -93,7 +117,8 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
         Ui.init(this);
         Sound.init(this);
         Theme.recompute(this);
-        slop = ViewConfiguration.get(this).getScaledTouchSlop();
+        recovered = Safety.onCreate(this);
+        if (saved != null) pendingWidget = saved.getInt("pending_widget", -1);
         backdrop = new Backdrop(this);
         backdrop.setListener(this);
         Ui.edgeToEdge(this, false);
@@ -108,10 +133,18 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
         f.addDataScheme("package");
         registerReceiver(packages, f);
         handleDemo(getIntent());
-        if (!Prefs.onboarded(this)) {
+        if (recovered) {
+            handler.postDelayed(() -> Sheet.pill(this, backdrop, "Algo falló al abrir. Regresé a tu último diseño que funcionaba."), 1200);
+        } else if (!Prefs.onboarded(this)) {
             Prefs.setOnboarded(this);
-            handler.postDelayed(() -> Sheet.pill(this, backdrop, "Mantén presionado el fondo para personalizar"), 1400);
+            handler.postDelayed(() -> Sheet.pill(this, backdrop, "Mantén presionado cualquier cosa para moverla"), 1400);
         }
+    }
+
+    @Override
+    protected void onSaveInstanceState(Bundle out) {
+        super.onSaveInstanceState(out);
+        out.putInt("pending_widget", pendingWidget);
     }
 
     @Override
@@ -133,34 +166,14 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
         content = new FrameLayout(this);
         root.addView(content, new FrameLayout.LayoutParams(-1, -1));
 
-        clock = new ClockView(this, backdrop);
-        content.addView(clock, new FrameLayout.LayoutParams(-2, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL));
-        clock.setOnClickListener(v -> {
-            Sound.play(v, Sound.TAP);
-            showCalendar();
-        });
-        clock.setOnLongClickListener(v -> {
-            Sound.play(v, Sound.HOLD);
-            Studio.show(this, this, -1);
-            return true;
-        });
+        home = new HomeView(this, backdrop);
+        content.addView(home, new FrameLayout.LayoutParams(-1, -1));
 
         bottomBox = new LinearLayout(this);
         bottomBox.setOrientation(LinearLayout.VERTICAL);
         bottomBox.setGravity(Gravity.CENTER_HORIZONTAL);
-        int side = Ui.dp(this, 12);
-        bottomBox.setPadding(side, 0, side, 0);
-        musicCard = new Widgets.MusicCard(this, backdrop);
-        musicCard.setVisibility(View.GONE);
-        LinearLayout.LayoutParams mlp = new LinearLayout.LayoutParams(-1, -2);
-        mlp.setMargins(Ui.dp(this, 5), 0, Ui.dp(this, 5), Ui.dp(this, 6));
-        bottomBox.addView(musicCard, mlp);
-        panelsView = buildPanels();
-        bottomBox.addView(panelsView, new LinearLayout.LayoutParams(-1, -2));
         dock = buildDock();
-        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(-2, -2);
-        dlp.topMargin = Ui.dp(this, 16);
-        bottomBox.addView(dock, dlp);
+        bottomBox.addView(dock, new LinearLayout.LayoutParams(-2, -2));
         content.addView(bottomBox, new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM));
 
         dashboard = new Dashboard(this, backdrop, this);
@@ -173,139 +186,99 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
         overlay.setVisibility(View.GONE);
         root.addView(overlay, new FrameLayout.LayoutParams(-1, -1));
 
-        gestures = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
-            @Override
-            public boolean onDown(MotionEvent e) {
-                return true;
-            }
-
-            @Override
-            public boolean onDoubleTap(MotionEvent e) {
-                doubleTap();
-                return true;
-            }
-
-            @Override
-            public void onLongPress(MotionEvent e) {
-                if (drag != DRAG_NONE) return;
-                int g = Prefs.gLong(MainActivity.this);
-                if (g == 2) return;
-                Sound.play(backdrop, Sound.HOLD);
-                Studio.show(MainActivity.this, MainActivity.this, g == 1 ? 0 : -1);
-            }
-        });
-        content.setOnTouchListener(this::onHomeTouch);
-
         root.setOnApplyWindowInsetsListener((v, in) -> {
             insetTop = in.getSystemWindowInsetTop();
-            positionClock();
-            ((FrameLayout.LayoutParams) bottomBox.getLayoutParams()).bottomMargin = in.getSystemWindowInsetBottom() + Ui.dp(this, 14);
+            insetBottom = in.getSystemWindowInsetBottom();
+            ((FrameLayout.LayoutParams) bottomBox.getLayoutParams()).bottomMargin = insetBottom + Ui.dp(this, 14);
             bottomBox.requestLayout();
+            updateHomeFrame();
             return in;
         });
         setContentView(root);
-        applyHome();
+        lookAccent = Theme.accent;
+        lookLight = Theme.wallLight;
+        layoutDock();
+        refreshDock();
     }
 
-    private void positionClock() {
-        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) clock.getLayoutParams();
-        int screenH = getResources().getDisplayMetrics().heightPixels;
-        boolean left = Prefs.clockAlign(this) == 1;
-        lp.gravity = Gravity.TOP | (left ? Gravity.START : Gravity.CENTER_HORIZONTAL);
-        lp.leftMargin = left ? Ui.dp(this, 26) : 0;
-        lp.topMargin = insetTop + (int) (screenH * (Prefs.clockStyle(this) == 0 ? 0.10f : 0.08f));
-        clock.setLayoutParams(lp);
+    /** Dónde empieza y termina la cuadrícula de inicio según la barra de estado y el dock. */
+    private void updateHomeFrame() {
+        int dockH = Prefs.showDock(this) ? Ui.dp(this, Prefs.dockIconSize(this) + 16 + 6) : 0;
+        int reserve = insetBottom + Ui.dp(this, 14) + dockH;
+        home.setFrame(insetTop, reserve, insetBottom + Ui.dp(this, 14));
     }
 
-    private LinearLayout buildPanels() {
-        LinearLayout grid = new LinearLayout(this);
-        grid.setOrientation(LinearLayout.VERTICAL);
-        panels.clear();
-        LinearLayout row1 = row();
-        row1.addView(panel(Icons.CALC, "Calculadora", "Científica y obra", null, v ->
-                Screen.open(this, new Intent(this, CalcActivity.class))), weight());
-        studyIcon = new StudyIcon(this);
-        View study = panel(Icons.FOCUS, "Estudio", "Modo enfoque", studyIcon, v -> toggleStudy());
-        studySub = (TextView) study.getTag();
-        row1.addView(study, weight());
-        LinearLayout row2 = row();
-        View tasks = panel(Icons.TASKS, "Pendientes", "Ponte en el Mapa", null, v ->
-                Screen.open(this, new Intent(this, PendientesActivity.class)));
-        tasksSub = (TextView) tasks.getTag();
-        row2.addView(tasks, weight());
-        row2.addView(panel(Icons.SPARK, "Jarvis", "Abrir Claude", null, v -> openJarvis()), weight());
-        grid.addView(row1);
-        grid.addView(row2);
-        return grid;
-    }
+    /** Dock: al deslizar hacia arriba sobre él también se abre el cajón. */
+    private final class DockBar extends LinearLayout {
+        private float y0, x0;
+        private boolean vertical;
+        private VelocityTracker vt;
+        private final int slop;
 
-    private LinearLayout row() {
-        LinearLayout r = new LinearLayout(this);
-        r.setOrientation(LinearLayout.HORIZONTAL);
-        return r;
-    }
-
-    private LinearLayout.LayoutParams weight() {
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, Ui.dp(this, 70), 1f);
-        int m = Ui.dp(this, 5);
-        lp.setMargins(m, m, m, m);
-        return lp;
-    }
-
-    private View panel(Icons.Shape icon, String title, String sub, View customIcon, View.OnClickListener action) {
-        LinearLayout p = new LinearLayout(this);
-        p.setOrientation(LinearLayout.HORIZONTAL);
-        p.setGravity(Gravity.CENTER_VERTICAL);
-        Glass.apply(p, backdrop, 24);
-        p.setPadding(Ui.dp(this, 13), 0, Ui.dp(this, 10), 0);
-        View ic;
-        if (customIcon != null) {
-            ic = customIcon;
-        } else {
-            ImageView iv = new ImageView(this);
-            iv.setImageDrawable(Icons.of(icon));
-            int ip = Ui.dp(this, 10);
-            iv.setPadding(ip, ip, ip, ip);
-            iv.setBackground(Ui.fill(this, 0x1AFFFFFF, 15));
-            ic = iv;
+        DockBar(Context c) {
+            super(c);
+            slop = ViewConfiguration.get(c).getScaledTouchSlop();
         }
-        p.addView(ic, new LinearLayout.LayoutParams(Ui.dp(this, 42), Ui.dp(this, 42)));
-        LinearLayout texts = new LinearLayout(this);
-        texts.setOrientation(LinearLayout.VERTICAL);
-        texts.setPadding(Ui.dp(this, 12), 0, 0, 0);
-        TextView t = Ui.text(this, title, 15, Ui.TEXT, Ui.SEMIBOLD);
-        t.setMaxLines(1);
-        texts.addView(t);
-        TextView s = Ui.text(this, sub, 12, Ui.MUTED, Ui.REGULAR);
-        s.setMaxLines(1);
-        s.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(-2, -2);
-        slp.topMargin = Ui.dp(this, 4);
-        texts.addView(s, slp);
-        p.addView(texts, new LinearLayout.LayoutParams(0, -2, 1f));
-        p.setTag(s);
-        Ui.pressable(p, 0.95f);
-        p.setOnClickListener(v -> {
-            Sound.play(v, Sound.OPEN);
-            action.onClick(v);
-        });
-        panels.add(p);
-        return p;
+
+        @Override
+        public boolean onInterceptTouchEvent(MotionEvent e) {
+            switch (e.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    y0 = e.getRawY();
+                    x0 = e.getRawX();
+                    vertical = false;
+                    if (vt != null) vt.recycle();
+                    vt = VelocityTracker.obtain();
+                    vt.addMovement(e);
+                    return false;
+                case MotionEvent.ACTION_MOVE:
+                    if (vt != null) vt.addMovement(e);
+                    float dy = e.getRawY() - y0, dx = e.getRawX() - x0;
+                    if (!vertical && -dy > slop * 1.5f && Math.abs(dy) > Math.abs(dx)) {
+                        vertical = true;
+                        vStart(true);
+                        return true;
+                    }
+                    return false;
+                default:
+                    return false;
+            }
+        }
+
+        @Override
+        public boolean onTouchEvent(MotionEvent e) {
+            if (!vertical) return super.onTouchEvent(e);
+            if (vt != null) vt.addMovement(e);
+            float dy = e.getRawY() - y0;
+            int a = e.getActionMasked();
+            if (a == MotionEvent.ACTION_MOVE) {
+                vMove(dy);
+            } else if (a == MotionEvent.ACTION_UP || a == MotionEvent.ACTION_CANCEL) {
+                float vy = 0;
+                if (vt != null) {
+                    vt.computeCurrentVelocity(1000);
+                    vy = vt.getYVelocity();
+                }
+                vEnd(dy, vy);
+                vertical = false;
+            }
+            return true;
+        }
     }
 
     private LinearLayout buildDock() {
-        LinearLayout d = new LinearLayout(this);
+        LinearLayout d = new DockBar(this);
         d.setOrientation(LinearLayout.HORIZONTAL);
         d.setGravity(Gravity.CENTER_VERTICAL);
-        Glass.apply(d, backdrop, 30);
-        int pad = Ui.dp(this, 8);
-        d.setPadding(Ui.dp(this, 10), pad, Ui.dp(this, 10), pad);
         for (int i = 0; i < Prefs.SLOTS; i++) {
             final int slot = i;
             FrameLayout f = new FrameLayout(this);
             ImageView iv = new ImageView(this);
             iv.setScaleType(ImageView.ScaleType.FIT_CENTER);
             f.addView(iv, new FrameLayout.LayoutParams(-1, -1));
+            View badge = new View(this);
+            badge.setVisibility(View.GONE);
+            f.addView(badge, new FrameLayout.LayoutParams(Ui.dp(this, 10), Ui.dp(this, 10), Gravity.TOP | Gravity.END));
             Ui.pressable(f, 0.84f);
             f.setOnClickListener(v -> onDockTap(slot, v));
             f.setOnLongClickListener(v -> {
@@ -315,29 +288,55 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
             });
             dockSlots[i] = f;
             dockIcons[i] = iv;
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(Ui.dp(this, 44), Ui.dp(this, 44));
-            lp.setMargins(Ui.dp(this, 3), 0, Ui.dp(this, 3), 0);
-            d.addView(f, lp);
+            dockBadges[i] = badge;
+            d.addView(f, new LinearLayout.LayoutParams(Ui.dp(this, 44), Ui.dp(this, 44)));
         }
-        View sep = new View(this);
-        sep.setBackgroundColor(0x2EFFFFFF);
+        dockSep = new View(this);
+        dockSep.setBackgroundColor(0x2EFFFFFF);
         LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(Math.max(1, Ui.dp(this, 1)), Ui.dp(this, 28));
         slp.setMargins(Ui.dp(this, 7), 0, Ui.dp(this, 5), 0);
-        d.addView(sep, slp);
-        ImageView grid = new ImageView(this);
-        grid.setImageDrawable(new Icons.Line(Icons.GRID, Ui.TEXT, 2.6f));
+        d.addView(dockSep, slp);
+        drawerButton = new ImageView(this);
+        drawerButton.setImageDrawable(new Icons.Line(Icons.GRID, Ui.TEXT, 2.6f));
         int gp = Ui.dp(this, 9);
-        grid.setPadding(gp, gp, gp, gp);
-        Ui.pressable(grid, 0.84f);
-        grid.setOnClickListener(v -> {
+        drawerButton.setPadding(gp, gp, gp, gp);
+        Ui.pressable(drawerButton, 0.84f);
+        drawerButton.setOnClickListener(v -> {
             Sound.play(v, Sound.OPEN);
             openDrawer(false);
         });
-        d.addView(grid, new LinearLayout.LayoutParams(Ui.dp(this, 44), Ui.dp(this, 44)));
+        d.addView(drawerButton, new LinearLayout.LayoutParams(Ui.dp(this, 44), Ui.dp(this, 44)));
         return d;
     }
 
-    /** Ícono del panel de estudio: anillo con lo que falta de la sesión. */
+    /** Tamaño, separación, cantidad y fondo del dock según las preferencias. */
+    private void layoutDock() {
+        int size = Ui.dp(this, Prefs.dockIconSize(this)), sp = Ui.dp(this, Prefs.dockSpacing(this));
+        int n = Prefs.dockCount(this);
+        for (int i = 0; i < Prefs.SLOTS; i++) {
+            LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) dockSlots[i].getLayoutParams();
+            lp.width = size;
+            lp.height = size;
+            lp.setMargins(sp, 0, sp, 0);
+            dockSlots[i].setLayoutParams(lp);
+            dockSlots[i].setVisibility(i < n ? View.VISIBLE : View.GONE);
+        }
+        LinearLayout.LayoutParams gl = (LinearLayout.LayoutParams) drawerButton.getLayoutParams();
+        gl.width = size;
+        gl.height = size;
+        drawerButton.setLayoutParams(gl);
+        int gp = Math.round(size * 0.2f);
+        drawerButton.setPadding(gp, gp, gp, gp);
+        boolean glass = Prefs.dockGlass(this);
+        if (glass) Glass.apply(dock, backdrop, 30);
+        else dock.setBackground(null);
+        int pad = Ui.dp(this, 8);
+        dock.setPadding(Ui.dp(this, glass ? 10 : 4), pad, Ui.dp(this, glass ? 10 : 4), pad);
+        dockSep.setVisibility(glass ? View.VISIBLE : View.INVISIBLE);
+        bottomBox.setVisibility(Prefs.showDock(this) && !home.editing ? View.VISIBLE : View.GONE);
+    }
+
+    /** Ícono del modo estudio: anillo con lo que falta de la sesión. */
     static final class StudyIcon extends View {
         private final Paint bg = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint ring = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -402,29 +401,36 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
     @Override
     public void applyLook() {
         Ui.setLightBars(this, Theme.wallLight && !drawerOpen && !dashboard.isOpen());
-        clock.refresh();
-        if (Prefs.iconStyle(this) == 2) {
-            Drawer.trim();
+        // Solo se rehace inicio si de verdad cambió el color o lo claro del fondo
+        if (Theme.accent != lookAccent || Theme.wallLight != lookLight) {
+            lookAccent = Theme.accent;
+            lookLight = Theme.wallLight;
+            if (Prefs.iconStyle(this) == 2) Drawer.trim();
             refreshDock();
+            home.rebuildAll();
         }
-        studyIcon.invalidate();
         dashboard.invalidate();
         backdrop.invalidateGlass();
     }
 
     @Override
     public void applyHome() {
-        clock.rebuild();
-        positionClock();
-        panelsView.setVisibility(Prefs.showPanels(this) ? View.VISIBLE : View.GONE);
-        dock.setVisibility(Prefs.showDock(this) ? View.VISIBLE : View.GONE);
-        int n = Prefs.dockCount(this);
-        for (int i = 0; i < Prefs.SLOTS; i++) dockSlots[i].setVisibility(i < n ? View.VISIBLE : View.GONE);
-        if (Prefs.showMusic(this)) Media.addListener(this, musicCard);
-        else Media.removeListener(musicCard);
-        musicCard.onMediaChanged();
+        boolean free = Prefs.homeFree(this);
+        Drawer.trim();
+        layoutDock();
         refreshDock();
+        updateHomeFrame();
+        if (free != home.model.free) {
+            home.model.free = free;
+            home.model.normalize();
+            home.saveModel();
+            home.populate();
+        } else {
+            home.rebuildAll();
+        }
+        home.refreshTransitions();
         refreshStudy();
+        onMediaChanged();
     }
 
     // ==================== Ciclo de vida ====================
@@ -433,28 +439,34 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
     protected void onStart() {
         super.onStart();
         backdrop.setAnimated(Prefs.animated(this));
-        backdrop.setParallax(Prefs.parallax(this));
+        backdrop.setParallax(Prefs.parallax(this) && Prefs.motion(this) < 2);
         backdrop.setSmooth(Prefs.smooth(this));
         backdrop.setRunning(true);
         Ui.setLightBars(this, Theme.wallLight && !drawerOpen && !dashboard.isOpen());
+        AppWidgets.start(this);
+        home.start();
         refreshDock();
-        refreshTasks();
-        if (Prefs.showMusic(this)) Media.addListener(this, musicCard);
+        Media.addListener(this, this);
         handler.removeCallbacks(ticker);
         handler.post(ticker);
+        handler.removeCallbacks(stable);
+        handler.postDelayed(stable, 8000);
         Weather.refresh(this, false, n -> {
-            clock.refresh();
+            home.tick();
             dashboard.refreshWeather();
         });
-        if (!drawerOpen && !dashboard.isOpen()) playEntrance();
+        if (!drawerOpen && !dashboard.isOpen() && !home.editing) playEntrance();
     }
 
     @Override
     protected void onStop() {
         super.onStop();
         backdrop.setRunning(false);
-        Media.removeListener(musicCard);
+        AppWidgets.stop(this);
+        home.stop();
+        Media.removeListener(this);
         handler.removeCallbacks(ticker);
+        handler.removeCallbacks(stable);
     }
 
     @Override
@@ -485,6 +497,14 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
             closeDashboard();
             return;
         }
+        if (home.editing) {
+            home.setEditing(false);
+            return;
+        }
+        if (home.page != 0) {
+            home.goTo(0, true);
+            return;
+        }
         playEntrance();
     }
 
@@ -494,32 +514,91 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
         if (overlay.getVisibility() == View.VISIBLE) closeOverlay();
         else if (drawerOpen) closeDrawer();
         else if (dashboard.isOpen()) closeDashboard();
+        else if (home.editing) home.setEditing(false);
+        else if (home.page != 0) home.goTo(0, true);
+    }
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent e) {
+        // El fondo reacciona al dedo (la constelación se aparta) solo con inicio a la vista
+        if (!drawerOpen && !dashboard.isOpen() && overlay.getVisibility() != View.VISIBLE && !home.editing) {
+            int a = e.getActionMasked();
+            backdrop.touch(e.getX(), e.getY(), a == MotionEvent.ACTION_DOWN || a == MotionEvent.ACTION_MOVE);
+        }
+        return super.dispatchTouchEvent(e);
     }
 
     @Override
     protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
+        if (req == REQ_BIND) {
+            if (res == RESULT_OK && pendingWidget >= 0) configureWidget(pendingWidget);
+            else cancelPendingWidget();
+            return;
+        }
+        if (req == REQ_CONFIG) {
+            if (res == RESULT_OK && pendingWidget >= 0) placeWidget(pendingWidget);
+            else cancelPendingWidget();
+            return;
+        }
         if (res != RESULT_OK || data == null) return;
         if (req >= REQ_PICK && req < REQ_PICK + Prefs.SLOTS) {
             Prefs.setSlot(this, req - REQ_PICK, data.getStringExtra(AppsActivity.EXTRA_PKG));
             refreshDock();
         } else if (req == REQ_PHOTO && data.getData() != null) {
             importPhoto(data.getData(), null);
+        } else if (req == REQ_ADD_APP) {
+            addAppToHome(data.getStringExtra(AppsActivity.EXTRA_PKG));
+        } else if (req == REQ_FOLDER_ADD && pendingItem != null) {
+            String pkg = data.getStringExtra(AppsActivity.EXTRA_PKG);
+            HomeModel.Item f = pendingItem;
+            pendingItem = null;
+            if (pkg != null && home.model.items.contains(f)) {
+                JSONArray arr = f.apps();
+                boolean has = false;
+                for (int i = 0; i < arr.length(); i++) if (pkg.equals(arr.optString(i))) has = true;
+                if (!has) arr.put(pkg);
+                home.replaceView(f);
+                home.saveModel();
+                Sheet.pill(this, backdrop, IconEngine.label(this, pkg) + " quedó en " + f.str("name", "la carpeta"));
+            }
+        } else if (req == REQ_GADGET_PHOTO && data.getData() != null && pendingItem != null) {
+            HomeModel.Item it = pendingItem;
+            pendingItem = null;
+            Sheet.pill(this, backdrop, "Preparando tu foto…");
+            Gadgets.PhotoG.importPhoto(this, data.getData(), Gadgets.PhotoG.file(this, it.id), () -> {
+                if (home.model.items.contains(it)) home.replaceView(it);
+            });
+        } else if (req == REQ_ICON && data.getData() != null && pendingPkg != null) {
+            String pkg = pendingPkg;
+            pendingPkg = null;
+            Uri uri = data.getData();
+            Context app = getApplicationContext();
+            Gadgets.BG.execute(() -> {
+                boolean ok = IconEngine.importCustom(app, uri, pkg);
+                Gadgets.MAIN.post(() -> {
+                    if (ok) refreshIcons(pkg);
+                    else Sheet.pill(this, backdrop, "No pude usar esa imagen");
+                });
+            });
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int req, String[] perms, int[] results) {
+        super.onRequestPermissionsResult(req, perms, results);
+        if (req == REQ_CAL) {
+            home.forEachGadget(g -> {
+                if (g instanceof Gadgets.AgendaG) g.rebuild();
+            });
         }
     }
 
     private void playEntrance() {
+        if (Prefs.motion(this) == 3) return;
+        home.playEntrance();
+        if (bottomBox.getVisibility() != View.VISIBLE) return;
         float d = getResources().getDisplayMetrics().density;
-        clock.playEntrance();
-        for (int k = 0; k < panels.size(); k++) {
-            View p = panels.get(k);
-            p.setAlpha(0f);
-            p.setTranslationY(36 * d);
-            p.setScaleX(0.96f);
-            p.setScaleY(0.96f);
-            p.animate().alpha(1f).translationY(0).scaleX(1f).scaleY(1f).setStartDelay(140 + k * 60L).setDuration(520)
-                    .setInterpolator(new DecelerateInterpolator(2.2f)).start();
-        }
         dock.setAlpha(0f);
         dock.setTranslationY(90 * d);
         dock.animate().alpha(1f).translationY(0).setStartDelay(200).setDuration(640)
@@ -533,75 +612,165 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
         }
     }
 
-    // ==================== Gestos en inicio ====================
+    // ==================== Inicio (lo que pide HomeView) ====================
 
-    private boolean onHomeTouch(View v, MotionEvent e) {
-        int a = e.getActionMasked();
-        backdrop.touch(e.getX(), e.getY(), a == MotionEvent.ACTION_DOWN || a == MotionEvent.ACTION_MOVE);
-        if (a == MotionEvent.ACTION_DOWN) {
-            drag = DRAG_NONE;
-            downX = e.getRawX();
-            downY = e.getRawY();
-            if (vt != null) vt.recycle();
-            vt = VelocityTracker.obtain();
+    /** Crea la vista de un elemento de inicio. */
+    View createItemView(HomeModel.Item it) {
+        switch (it.type) {
+            case "app":
+                return it.str("pkg", "").isEmpty() ? null : new Gadgets.AppIcon(this, it);
+            case "folder":
+                return new Gadgets.FolderIcon(this, it);
+            case "aw":
+                return new AppWidgets.Frame(this, it);
+            default:
+                return Gadgets.create(this, it);
         }
-        if (vt != null) vt.addMovement(e);
-        float dx = e.getRawX() - downX, dy = e.getRawY() - downY;
-        float h = root.getHeight();
-        if (drag == DRAG_NONE && a == MotionEvent.ACTION_MOVE && Math.abs(dy) > slop * 1.5f && Math.abs(dy) > Math.abs(dx)) {
-            MotionEvent cancel = MotionEvent.obtain(e);
-            cancel.setAction(MotionEvent.ACTION_CANCEL);
-            gestures.onTouchEvent(cancel);
-            cancel.recycle();
-            if (dy < 0) {
-                if (Prefs.gUp(this) == 2) {
-                    drag = DRAG_DONE;
-                } else {
-                    drag = DRAG_DRAWER;
-                    drawer.load(false);
-                    drawer.setProgress(0f);
-                }
+    }
+
+    void onEditMode(boolean on) {
+        if (on) {
+            bottomBox.animate().alpha(0f).translationY(Ui.dp(this, 30)).setDuration(200)
+                    .withEndAction(() -> bottomBox.setVisibility(View.GONE)).start();
+        } else if (Prefs.showDock(this)) {
+            bottomBox.setVisibility(View.VISIBLE);
+            bottomBox.animate().alpha(1f).translationY(0).setDuration(280).withEndAction(null).start();
+        }
+        Ui.setLightBars(this, !on && Theme.wallLight);
+    }
+
+    void onHomeDoubleTap() {
+        doubleTap();
+    }
+
+    void onHomeLongPress() {
+        Sound.play(home, Sound.HOLD);
+        switch (Prefs.gLong(this)) {
+            case 1:
+                if (Prefs.homeLocked(this)) Sheet.pill(this, backdrop, "Tu diseño está bloqueado. Lo puedes desbloquear en Personalizar > Inicio");
+                else home.setEditing(true);
+                break;
+            case 2:
+                Studio.show(this, this, -1);
+                break;
+            case 3:
+                break;
+            default:
+                HomeMenus.homeMenu(this);
+                break;
+        }
+    }
+
+    void itemMenu(HomeModel.Item it) {
+        HomeMenus.item(this, it);
+    }
+
+    void openWidgetPicker() {
+        HomeMenus.widgets(this);
+    }
+
+    void pickAppForHome() {
+        Intent i = new Intent(this, AppsActivity.class);
+        i.putExtra(AppsActivity.EXTRA_PICK, true);
+        startActivityForResult(i, REQ_ADD_APP);
+        overridePendingTransition(Screen.anim(this, "screen_enter"), Screen.anim(this, "stay_out"));
+    }
+
+    void pickAppForFolder(HomeModel.Item folder) {
+        pendingItem = folder;
+        Intent i = new Intent(this, AppsActivity.class);
+        i.putExtra(AppsActivity.EXTRA_PICK, true);
+        startActivityForResult(i, REQ_FOLDER_ADD);
+        overridePendingTransition(Screen.anim(this, "screen_enter"), Screen.anim(this, "stay_out"));
+    }
+
+    void addAppToHome(String pkg) {
+        if (pkg == null) return;
+        HomeModel.Item it = home.place("app", 1, 1, x -> x.put("pkg", pkg));
+        if (it == null) Sheet.pill(this, backdrop, "Ya no hay espacio en inicio");
+        else Sheet.pill(this, backdrop, IconEngine.label(this, pkg) + " quedó en inicio");
+    }
+
+    void studioFromEdit() {
+        Studio.show(this, this, Studio.TAB_HOME);
+    }
+
+    /** Lo mínimo que puede medir un elemento al cambiarle el tamaño. */
+    float[] minSpan(HomeModel.Item it) {
+        float[] m;
+        if (it.type.equals("aw")) {
+            m = AppWidgets.minSpan(this, it.num("id", -1), home.cellW, home.cellH);
+        } else {
+            Gadgets.Spec s = Gadgets.spec(it.type);
+            m = s != null ? new float[]{s.minW, s.minH} : new float[]{1, 1};
+        }
+        if (!home.model.free) {
+            m[0] = Math.max(1, (float) Math.ceil(m[0]));
+            m[1] = Math.max(1, (float) Math.ceil(m[1]));
+        }
+        return m;
+    }
+
+    /** Libera los widgets de otras apps que ya no están en inicio (se hace al salir de editar, así se pueden deshacer). */
+    void purgeWidgets(HomeModel m) {
+        Set<Integer> used = new HashSet<>();
+        for (HomeModel.Item it : m.items) if (it.type.equals("aw")) used.add(it.num("id", -1));
+        if (pendingWidget >= 0) used.add(pendingWidget);
+        try {
+            for (int id : AppWidgets.host(this).getAppWidgetIds()) if (!used.contains(id)) AppWidgets.delete(this, id);
+        } catch (Exception ignored) {
+            // nada
+        }
+    }
+
+    // ---------- Arrastre vertical ----------
+
+    void vStart(boolean up) {
+        if (up) {
+            if (Prefs.gUp(this) == 2) {
+                vdrag = V_DONE;
             } else {
-                int g = Prefs.gDown(this);
-                if (g == 0) {
-                    drag = DRAG_DASH;
-                    dashboard.setProgress(0f);
-                } else {
-                    drag = DRAG_DONE;
-                    if (g == 1) expandNotifications();
-                }
+                vdrag = V_DRAWER;
+                drawer.load(false);
+                drawer.setProgress(0f);
+            }
+        } else {
+            int g = Prefs.gDown(this);
+            if (g == 0) {
+                vdrag = V_DASH;
+                dashboard.setProgress(0f);
+            } else {
+                vdrag = V_DONE;
+                if (g == 1) expandNotifications();
             }
         }
-        if (drag == DRAG_NONE) {
-            gestures.onTouchEvent(e);
-            return true;
-        }
-        if (drag == DRAG_DRAWER) {
+    }
+
+    void vMove(float dy) {
+        float h = Math.max(1, root.getHeight());
+        if (vdrag == V_DRAWER) {
             float f = Math.max(0f, Math.min(1f, -dy / (h * 0.45f)));
-            if (a == MotionEvent.ACTION_MOVE) {
-                drawer.setProgress(f);
-                content.setAlpha(1f - f * 0.8f);
-            } else if (a == MotionEvent.ACTION_UP || a == MotionEvent.ACTION_CANCEL) {
-                vt.computeCurrentVelocity(1000);
-                if (f > 0.28f || vt.getYVelocity() < -900) openDrawer(Prefs.gUp(this) == 1);
-                else closeDrawer();
-                drag = DRAG_NONE;
-            }
-        } else if (drag == DRAG_DASH) {
+            drawer.setProgress(f);
+            content.setAlpha(1f - f * 0.8f);
+        } else if (vdrag == V_DASH) {
             float f = Math.max(0f, Math.min(1f, dy / (h * 0.4f)));
-            if (a == MotionEvent.ACTION_MOVE) {
-                dashboard.setProgress(f);
-                content.setAlpha(1f - f * 0.8f);
-            } else if (a == MotionEvent.ACTION_UP || a == MotionEvent.ACTION_CANCEL) {
-                vt.computeCurrentVelocity(1000);
-                if (f > 0.25f || vt.getYVelocity() > 900) openDashboard();
-                else closeDashboard();
-                drag = DRAG_NONE;
-            }
-        } else if (a == MotionEvent.ACTION_UP || a == MotionEvent.ACTION_CANCEL) {
-            drag = DRAG_NONE;
+            dashboard.setProgress(f);
+            content.setAlpha(1f - f * 0.8f);
         }
-        return true;
+    }
+
+    void vEnd(float dy, float vy) {
+        float h = Math.max(1, root.getHeight());
+        if (vdrag == V_DRAWER) {
+            float f = Math.max(0f, Math.min(1f, -dy / (h * 0.45f)));
+            if (f > 0.28f || vy < -900) openDrawer(Prefs.gUp(this) == 1);
+            else closeDrawer();
+        } else if (vdrag == V_DASH) {
+            float f = Math.max(0f, Math.min(1f, dy / (h * 0.4f)));
+            if (f > 0.25f || vy > 900) openDashboard();
+            else closeDashboard();
+        }
+        vdrag = V_NONE;
     }
 
     private void doubleTap() {
@@ -610,9 +779,7 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
                 if (!LockService.lock()) requestLock();
                 break;
             case 1:
-                boolean on = Device.toggleTorch(this);
-                Sound.play(content, Sound.TOGGLE);
-                Sheet.pill(this, backdrop, on ? "Linterna encendida" : "Linterna apagada");
+                toggle(0);
                 break;
             case 2:
                 nextWallpaper();
@@ -638,6 +805,400 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
         }
         Sound.play(content, Sound.THEME);
         applyWallpaper();
+    }
+
+    // ==================== Lo que piden los widgets ====================
+
+    void launchApp(String pkg, View from) {
+        if (home.editing) return;
+        if (getPackageManager().getLaunchIntentForPackage(pkg) == null) {
+            Sound.play(from, Sound.ERROR);
+            Sheet.pill(this, backdrop, "Esa app ya no está instalada");
+            return;
+        }
+        if (Prefs.studying(this) && Prefs.DISTRACTIONS.contains(pkg)) {
+            Sound.play(from, Sound.ERROR);
+            Sheet.confirm(this, backdrop, "Estás en modo estudio",
+                    "Esta app está en pausa hasta que termine tu sesión. ¿La abres de todos modos?",
+                    "Abrir", false, () -> {
+                        Prefs.countLaunch(this, pkg);
+                        launch(this, pkg, from);
+                    });
+            return;
+        }
+        Sound.play(from, Sound.OPEN);
+        Prefs.countLaunch(this, pkg);
+        launch(this, pkg, from);
+    }
+
+    void openFolder(HomeModel.Item it, View from) {
+        if (home.editing) return;
+        HomeMenus.folder(this, it, from);
+    }
+
+    void weatherTap() {
+        if (Prefs.city(this).isEmpty()) {
+            askCity();
+            return;
+        }
+        Weather.Now w = Weather.cached(this);
+        String title = w != null ? w.temp + "°  " + Weather.describe(w.code) + " en " + w.place : "Clima";
+        Sheet.show(this, backdrop, title,
+                Sheet.item("Actualizar ahora", Icons.HISTORY, () -> {
+                    Sheet.pill(this, backdrop, "Actualizando el clima…");
+                    Weather.refresh(this, true, n -> {
+                        home.tick();
+                        dashboard.refreshWeather();
+                    });
+                }),
+                Sheet.item("Cambiar ciudad", Gadgets.GLOBE, this::askCity),
+                Sheet.item("Ver el panel", Widgets.BELL, () -> {
+                    dashboard.setProgress(0f);
+                    openDashboard();
+                }));
+    }
+
+    void openMusicApp() {
+        if (Media.active()) {
+            Media.open(this);
+            return;
+        }
+        for (String p : new String[]{"com.spotify.music", "com.google.android.apps.youtube.music", "deezer.android.app", "com.apple.android.music", "com.amazon.mp3"}) {
+            if (getPackageManager().getLaunchIntentForPackage(p) != null) {
+                launch(this, p, null);
+                return;
+            }
+        }
+        try {
+            startActivity(Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_MUSIC).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        } catch (Exception e) {
+            Sheet.pill(this, backdrop, "No encontré una app de música");
+        }
+    }
+
+    void requestCalendar() {
+        requestPermissions(new String[]{Manifest.permission.READ_CALENDAR}, REQ_CAL);
+    }
+
+    void askJarvis() {
+        openJarvis();
+    }
+
+    /** Acciones de los atajos (también las usa el panel y la revisión automática). */
+    void shortcut(String a) {
+        switch (a) {
+            case "calc":
+                Screen.open(this, new Intent(this, CalcActivity.class));
+                break;
+            case "obra":
+                Screen.open(this, new Intent(this, CalcActivity.class).putExtra("tab", 1));
+                break;
+            case "tasks":
+                Screen.open(this, new Intent(this, PendientesActivity.class));
+                break;
+            case "panel":
+                dashboard.setProgress(0f);
+                openDashboard();
+                break;
+            case "buscar":
+                openDrawer(true);
+                break;
+            case "linterna":
+                toggle(0);
+                break;
+            case "fondo":
+                nextWallpaper();
+                break;
+            case "personalizar":
+                Studio.show(this, this, -1);
+                break;
+            case "editar":
+                if (Prefs.homeLocked(this)) Sheet.pill(this, backdrop, "Tu diseño está bloqueado. Lo puedes desbloquear en Personalizar > Inicio");
+                else home.setEditing(true);
+                break;
+            case "alarma":
+                startSafe(new Intent(AlarmClock.ACTION_SHOW_ALARMS), "No encontré la app de alarmas");
+                break;
+            case "ajustes":
+                startSafe(new Intent(Settings.ACTION_SETTINGS), null);
+                break;
+            default:
+                break;
+        }
+    }
+
+    private void startSafe(Intent i, String fail) {
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            startActivity(i);
+        } catch (Exception e) {
+            if (fail != null) Sheet.pill(this, backdrop, fail);
+        }
+    }
+
+    /** 0 linterna, 1 internet, 2 volumen, 3 no molestar. Siempre dice lo que de verdad pasó. */
+    void toggle(int k) {
+        switch (k) {
+            case 0: {
+                boolean on = Device.toggleTorch(this);
+                Sound.play(content, Sound.TOGGLE);
+                Sheet.pill(this, backdrop, on ? "Linterna encendida" : "Linterna apagada");
+                break;
+            }
+            case 1:
+                if (Build.VERSION.SDK_INT >= 29) startSafe(new Intent(Settings.Panel.ACTION_INTERNET_CONNECTIVITY), null);
+                else startSafe(new Intent(Settings.ACTION_WIFI_SETTINGS), null);
+                break;
+            case 2:
+                if (Build.VERSION.SDK_INT >= 29) {
+                    startSafe(new Intent(Settings.Panel.ACTION_VOLUME), null);
+                } else {
+                    AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+                    if (am != null) am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_SAME, AudioManager.FLAG_SHOW_UI);
+                }
+                break;
+            default: {
+                NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+                if (nm == null || !nm.isNotificationPolicyAccessGranted()) {
+                    Sheet.confirm(this, backdrop, "No molestar",
+                            "Para prenderlo desde aquí, Android pide que Jostin OS tenga acceso a «No molestar». Si ya le diste permiso de notificaciones, normalmente ya lo tiene.",
+                            "Abrir ajustes", false, () -> startSafe(new Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS), null));
+                    return;
+                }
+                boolean want = !NotifService.dndOn(this);
+                if (!NotifService.setDnd(this, want)) {
+                    Sheet.pill(this, backdrop, "Android no dejó cambiar «No molestar»");
+                    return;
+                }
+                handler.postDelayed(() -> Sheet.pill(this, backdrop, NotifService.dndOn(this) ? "No molestar activado" : "No molestar desactivado"), 300);
+                break;
+            }
+        }
+    }
+
+    void voiceSearch() {
+        try {
+            startActivity(new Intent(RecognizerIntent.ACTION_WEB_SEARCH).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        } catch (Exception e) {
+            try {
+                startActivity(new Intent(Intent.ACTION_VOICE_COMMAND).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            } catch (Exception e2) {
+                Sheet.pill(this, backdrop, "No encontré búsqueda por voz en tu teléfono");
+            }
+        }
+    }
+
+    private void changed(HomeModel.Item it) {
+        if (!home.model.items.contains(it)) return;
+        home.refreshItem(it);
+        home.saveModel();
+    }
+
+    void editCountdown(HomeModel.Item it) {
+        Calendar cal = Calendar.getInstance();
+        try {
+            LocalDate d = LocalDate.parse(it.str("date", ""));
+            cal.set(d.getYear(), d.getMonthValue() - 1, d.getDayOfMonth());
+        } catch (Exception ignored) {
+            cal.add(Calendar.DAY_OF_MONTH, 7);
+        }
+        DatePickerDialog dlg = new DatePickerDialog(this, android.R.style.Theme_DeviceDefault_Dialog_Alert, (view, y, m, d) -> {
+            String date = String.format(Locale.US, "%04d-%02d-%02d", y, m + 1, d);
+            Sheet.prompt(this, backdrop, "¿Qué pasa ese día?", "Ejemplo: Mi cumpleaños", it.str("title", ""), v -> {
+                it.put("date", date);
+                it.put("title", v.isEmpty() ? "Mi fecha" : v);
+                changed(it);
+            });
+        }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH));
+        dlg.show();
+    }
+
+    void editNote(HomeModel.Item it) {
+        Sheet.prompt(this, backdrop, "Tu nota", "Escribe lo que quieras tener a la vista", it.str("text", ""), true, v -> {
+            it.put("text", v);
+            changed(it);
+        });
+    }
+
+    void editText(HomeModel.Item it) {
+        Sheet.prompt(this, backdrop, "Texto", "Ejemplo: Hoy sí", it.str("text", ""), true, v -> {
+            it.put("text", v.isEmpty() ? "Jostin OS" : v);
+            changed(it);
+        });
+    }
+
+    void editName(HomeModel.Item it) {
+        Sheet.prompt(this, backdrop, "¿Cómo quieres que te salude?", "Tu nombre", it.str("name", Prefs.userName(this)), v -> {
+            if (v.isEmpty()) return;
+            it.put("name", v);
+            Prefs.setUserName(this, v);
+            changed(it);
+        });
+    }
+
+    void worldCity(HomeModel.Item it) {
+        List<Sheet.Item> list = new ArrayList<>();
+        String cur = it.str("tz", "America/New_York");
+        for (String[] c : Gadgets.CITIES) {
+            Sheet.Item x = Sheet.item(c[0], Gadgets.GLOBE, () -> {
+                it.put("city", c[0]);
+                it.put("tz", c[1]);
+                changed(it);
+            });
+            x.value = () -> c[1].equals(cur) ? "Elegida" : Gadgets.WorldG.diff(c[1]);
+            list.add(x);
+        }
+        Sheet.show(this, backdrop, "¿Qué ciudad?", list);
+    }
+
+    void pickGadgetPhoto(HomeModel.Item it) {
+        pendingItem = it;
+        pickImage(REQ_GADGET_PHOTO);
+    }
+
+    void pickIcon(String pkg) {
+        pendingPkg = pkg;
+        pickImage(REQ_ICON);
+    }
+
+    void chooseShortcut(HomeModel.Item it) {
+        List<Sheet.Item> list = new ArrayList<>();
+        String cur = it.str("action", "calc");
+        for (String[] a : Gadgets.ACTIONS) {
+            Sheet.Item x = Sheet.item(a[1], Gadgets.actionIcon(a[0]), () -> {
+                it.put("action", a[0]);
+                changed(it);
+            });
+            x.value = () -> a[0].equals(cur) ? "Elegido" : "";
+            list.add(x);
+        }
+        Sheet.show(this, backdrop, "¿Qué hace este atajo?", list);
+    }
+
+    void chooseFrom(HomeModel.Item it, String key, String[] opts) {
+        List<Sheet.Item> list = new ArrayList<>();
+        int cur = it.num(key, 0);
+        for (int i = 0; i < opts.length; i++) {
+            final int k = i;
+            Sheet.Item x = Sheet.item(opts[i], null, () -> {
+                it.put(key, k);
+                changed(it);
+            });
+            x.value = () -> k == cur ? "Elegido" : "";
+            list.add(x);
+        }
+        Sheet.show(this, backdrop, null, list);
+    }
+
+    // ==================== Widgets de otras apps ====================
+
+    /** Paso 1: pedir permiso para usar el widget (Android lo exige la primera vez). */
+    void addSystemWidget(AppWidgetProviderInfo info) {
+        int id;
+        try {
+            id = AppWidgets.host(this).allocateAppWidgetId();
+        } catch (Exception e) {
+            Sheet.pill(this, backdrop, "No se pudo agregar ese widget");
+            return;
+        }
+        pendingWidget = id;
+        boolean ok;
+        try {
+            ok = AppWidgets.mgr(this).bindAppWidgetIdIfAllowed(id, info.getProfile(), info.provider, null);
+        } catch (Exception e) {
+            ok = false;
+        }
+        if (ok) {
+            configureWidget(id);
+            return;
+        }
+        Intent i = new Intent(AppWidgetManager.ACTION_APPWIDGET_BIND);
+        i.putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id);
+        i.putExtra(AppWidgetManager.EXTRA_APPWIDGET_PROVIDER, info.provider);
+        i.putExtra(AppWidgetManager.EXTRA_APPWIDGET_PROVIDER_PROFILE, info.getProfile());
+        try {
+            startActivityForResult(i, REQ_BIND);
+        } catch (Exception e) {
+            cancelPendingWidget();
+            Sheet.pill(this, backdrop, "Android no dejó agregar ese widget");
+        }
+    }
+
+    /** Paso 2: si el widget tiene pantalla de configuración, se abre. */
+    private void configureWidget(int id) {
+        AppWidgetProviderInfo info = AppWidgets.mgr(this).getAppWidgetInfo(id);
+        if (info == null) {
+            cancelPendingWidget();
+            return;
+        }
+        boolean optional = Build.VERSION.SDK_INT >= 31
+                && (info.widgetFeatures & AppWidgetProviderInfo.WIDGET_FEATURE_CONFIGURATION_OPTIONAL) != 0;
+        if (info.configure != null && !optional) {
+            try {
+                AppWidgets.host(this).startAppWidgetConfigureActivityForResult(this, id, 0, REQ_CONFIG, null);
+                return;
+            } catch (Exception e) {
+                // si su configuración no se puede abrir, se pone tal cual
+            }
+        }
+        placeWidget(id);
+    }
+
+    /** Paso 3: ponerlo en inicio. */
+    private void placeWidget(int id) {
+        pendingWidget = -1;
+        AppWidgetProviderInfo info = AppWidgets.mgr(this).getAppWidgetInfo(id);
+        if (info == null) {
+            AppWidgets.delete(this, id);
+            Sheet.pill(this, backdrop, "No se pudo agregar ese widget");
+            return;
+        }
+        int[] span = AppWidgets.span(info, home.cellW, home.cellH, home.cols, home.rows);
+        if (!home.editing) home.setEditing(true);
+        HomeModel.Item it = home.place("aw", span[0], span[1], x -> x.put("id", id));
+        if (it == null) {
+            AppWidgets.delete(this, id);
+            Sheet.pill(this, backdrop, "No hay espacio para ese widget. Quita algo o agrega una página.");
+        }
+    }
+
+    private void cancelPendingWidget() {
+        if (pendingWidget >= 0) AppWidgets.delete(this, pendingWidget);
+        pendingWidget = -1;
+    }
+
+    void reconfigureWidget(HomeModel.Item it) {
+        int id = it.num("id", -1);
+        if (Build.VERSION.SDK_INT < 31 || id < 0) return;
+        try {
+            AppWidgets.host(this).startAppWidgetConfigureActivityForResult(this, id, 0, REQ_CONFIG + 1000, null);
+        } catch (Exception e) {
+            Sheet.pill(this, backdrop, "Este widget no se puede configurar de nuevo");
+        }
+    }
+
+    /** Agrega un widget de Jostin OS y, si hace falta, pregunta lo necesario para que no quede vacío. */
+    void addGadget(Gadgets.Spec s) {
+        if (!home.editing) home.setEditing(true);
+        HomeModel.Item it = home.place(s.type, s.w, s.h, null);
+        if (it == null) {
+            Sheet.pill(this, backdrop, "Ya no hay espacio. Quita algo o agrega una página.");
+            return;
+        }
+        Runnable next = null;
+        switch (s.type) {
+            case "atajo": next = () -> chooseShortcut(it); break;
+            case "cuenta": next = () -> editCountdown(it); break;
+            case "nota": next = () -> editNote(it); break;
+            case "texto": next = () -> editText(it); break;
+            case "foto": next = () -> pickGadgetPhoto(it); break;
+            case "hora_mundial": next = () -> worldCity(it); break;
+            case "agenda":
+                if (checkSelfPermission(Manifest.permission.READ_CALENDAR) != PackageManager.PERMISSION_GRANTED) next = this::requestCalendar;
+                break;
+            default: break;
+        }
+        if (next != null) handler.postDelayed(next, 450);
     }
 
     // ==================== Cajón y panel ====================
@@ -675,7 +1236,11 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
     @Override
     public void appActions(Drawer.App app, View from) {
         Sheet.show(this, backdrop, app.label,
-                Sheet.item("Poner en el dock", Icons.HOME, () -> chooseSlot(app)),
+                Sheet.item("Agregar a inicio", Icons.PLUS, () -> {
+                    closeDrawer();
+                    handler.postDelayed(() -> addAppToHome(app.pkg), 300);
+                }),
+                Sheet.item("Poner en el dock", Icons.HOME, () -> chooseSlot(app.pkg, app.label)),
                 Sheet.item("Ocultar del cajón", Icons.CLOSE, () -> {
                     Set<String> h = Prefs.hidden(this);
                     h.add(app.pkg);
@@ -684,36 +1249,29 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
                     Sheet.pill(this, backdrop, app.label + " quedó oculta");
                 }),
                 Sheet.item("Información de la app", Icons.INFO, () -> appInfo(this, app.pkg)),
-                Sheet.item("Desinstalar", Icons.TRASH, () -> {
-                    try {
-                        startActivity(new Intent(Intent.ACTION_DELETE, Uri.parse("package:" + app.pkg)));
-                    } catch (Exception e) {
-                        appInfo(this, app.pkg);
-                    }
-                }).danger());
+                Sheet.item("Desinstalar", Icons.TRASH, () -> uninstall(app.pkg)).danger());
     }
 
-    private void chooseSlot(Drawer.App app) {
+    void uninstall(String pkg) {
+        try {
+            startActivity(new Intent(Intent.ACTION_DELETE, Uri.parse("package:" + pkg)));
+        } catch (Exception e) {
+            appInfo(this, pkg);
+        }
+    }
+
+    void chooseSlot(String pkg, String label) {
         List<Sheet.Item> items = new ArrayList<>();
-        PackageManager pm = getPackageManager();
         for (int k = 0; k < Prefs.dockCount(this); k++) {
             final int slot = k;
             String cur = Prefs.slot(this, k);
-            String name = "Vacío";
-            if (cur != null) {
-                try {
-                    name = String.valueOf(pm.getApplicationLabel(pm.getApplicationInfo(cur, 0)));
-                } catch (PackageManager.NameNotFoundException e) {
-                    name = "Vacío";
-                }
-            }
-            final String n = name;
+            String name = cur == null ? "Vacío" : IconEngine.label(this, cur);
             Sheet.Item it = Sheet.item("Lugar " + (k + 1), Icons.SWAP, () -> {
-                Prefs.setSlot(this, slot, app.pkg);
+                Prefs.setSlot(this, slot, pkg);
                 refreshDock();
-                Sheet.pill(this, backdrop, app.label + " quedó en el dock");
+                Sheet.pill(this, backdrop, label + " quedó en el dock");
             });
-            it.value = () -> n;
+            it.value = () -> name;
             items.add(it);
         }
         Sheet.show(this, backdrop, "¿En qué lugar?", items);
@@ -727,15 +1285,8 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
             return;
         }
         List<Sheet.Item> items = new ArrayList<>();
-        PackageManager pm = getPackageManager();
         for (String pkg : hidden) {
-            String name = pkg;
-            try {
-                name = String.valueOf(pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)));
-            } catch (PackageManager.NameNotFoundException ignored) {
-                // se queda el paquete
-            }
-            final String n = name;
+            final String n = IconEngine.label(this, pkg);
             Sheet.Item it = Sheet.item(n, Icons.SHAPES, () -> {
                 Set<String> h = Prefs.hidden(this);
                 h.remove(pkg);
@@ -762,12 +1313,12 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
     public void askCity() {
         Sheet.prompt(this, backdrop, "¿De qué ciudad quieres el clima?", "Ejemplo: Cuautla", Prefs.city(this), v -> {
             Prefs.setCity(this, v);
-            clock.refresh();
+            home.tick();
             dashboard.refreshWeather();
             if (!v.isEmpty()) {
                 Sheet.pill(this, backdrop, "Buscando el clima de " + v);
                 Weather.refresh(this, true, n -> {
-                    clock.refresh();
+                    home.tick();
                     dashboard.refreshWeather();
                 });
             }
@@ -778,7 +1329,7 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
     public void askGreeting() {
         Sheet.prompt(this, backdrop, "Frase bajo el reloj", "Ejemplo: Hoy se construye algo grande", Prefs.greeting(this), v -> {
             Prefs.setGreeting(this, v);
-            clock.refresh();
+            home.tick();
         });
     }
 
@@ -786,8 +1337,7 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
     public void quick(int action) {
         switch (action) {
             case Dashboard.Q_TORCH:
-                boolean on = Device.toggleTorch(this);
-                Sheet.pill(this, backdrop, on ? "Linterna encendida" : "Linterna apagada");
+                toggle(0);
                 break;
             case Dashboard.Q_STUDY:
                 closeDashboard();
@@ -806,21 +1356,125 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
     public void requestLock() {
         Sheet.confirm(this, backdrop, "Bloquear con doble toque",
                 "Android solo deja bloquear la pantalla a un servicio de accesibilidad. Activa «Jostin OS» en la lista que se va a abrir. No lee nada de tu pantalla.",
-                "Abrir ajustes", false, () -> {
-                    try {
-                        startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
-                    } catch (Exception ignored) {
-                        // nada
-                    }
-                });
+                "Abrir ajustes", false, () -> startSafe(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS), null));
     }
 
-    // ==================== Fotos (Studio.Host) ====================
+    // ==================== Estudio (Studio.Host) ====================
+
+    @Override
+    public void editHome() {
+        if (Prefs.homeLocked(this)) {
+            Sheet.pill(this, backdrop, "Primero quita «Bloquear diseño» en Personalizar > Inicio");
+            return;
+        }
+        home.setEditing(true);
+    }
+
+    @Override
+    public void openWidgets() {
+        HomeMenus.widgets(this);
+    }
+
+    @Override
+    public void restoreHome() {
+        List<String> tags = Safety.tags(this);
+        if (tags.isEmpty()) {
+            Sheet.pill(this, backdrop, "Todavía no hay copias. Se hace una cada día que cambias algo.");
+            return;
+        }
+        List<Sheet.Item> list = new ArrayList<>();
+        for (String t : tags) {
+            list.add(Sheet.item(Safety.label(t), Icons.HISTORY, () -> Sheet.confirm(this, backdrop, "¿Volver a esta copia?",
+                    "Tu diseño de ahora se guarda como copia por si te arrepientes.", "Restaurar", false, () -> {
+                        String json = Safety.backup(this, t);
+                        if (json == null) return;
+                        Safety.backupNow(this, "antes-" + new SimpleDateFormat("HHmmss", Locale.US).format(new Date()));
+                        home.setEditing(false);
+                        home.restore(json);
+                        purgeWidgets(home.model);
+                        Sheet.pill(this, backdrop, "Listo, regresó tu diseño");
+                    })));
+        }
+        Sheet.show(this, backdrop, "Copias de tu inicio", list);
+    }
+
+    @Override
+    public void resetHome() {
+        Sheet.confirm(this, backdrop, "¿Empezar de cero?", "Inicio vuelve al diseño de fábrica. Tu diseño de ahora se guarda como copia.", "Empezar de cero", true, () -> {
+            Safety.backupNow(this, "antes-" + new SimpleDateFormat("HHmmss", Locale.US).format(new Date()));
+            home.setEditing(false);
+            home.model.buildDefault(this);
+            home.model.free = Prefs.homeFree(this);
+            home.model.normalize();
+            home.saveModel();
+            home.populate();
+            purgeWidgets(home.model);
+        });
+    }
+
+    @Override
+    public void previewTransition() {
+        if (home.model.pages < 2) {
+            Sheet.pill(this, backdrop, "Agrega otra página para ver la transición");
+            return;
+        }
+        int back = home.page;
+        home.goTo(back == 0 ? 1 : back - 1, true);
+        handler.postDelayed(() -> home.goTo(back, true), 900);
+    }
+
+    @Override
+    public void chooseIconPack() {
+        List<String[]> packs = IconEngine.Pack.installed(this);
+        List<Sheet.Item> list = new ArrayList<>();
+        String cur = Prefs.iconPack(this);
+        Sheet.Item none = Sheet.item("Ninguno", Icons.CLOSE, () -> applyIconPack(null));
+        none.value = () -> cur == null ? "Elegido" : "";
+        list.add(none);
+        PackageManager pm = getPackageManager();
+        for (String[] p : packs) {
+            Sheet.Item x = Sheet.item(p[1], null, () -> applyIconPack(p[0]));
+            try {
+                x.drawable(pm.getApplicationIcon(p[0]));
+            } catch (Exception ignored) {
+                // sin ícono
+            }
+            x.value = () -> p[0].equals(cur) ? "Elegido" : "";
+            list.add(x);
+        }
+        if (packs.isEmpty()) {
+            list.add(Sheet.item("Buscar paquetes en Play Store", Icons.SEARCH, () -> startSafe(new Intent(Intent.ACTION_VIEW,
+                    Uri.parse("market://search?q=icon%20pack%20nova&c=apps")), "No encontré Play Store")));
+        }
+        Sheet.show(this, backdrop, "Paquete de íconos", list);
+    }
+
+    private void applyIconPack(String pkg) {
+        Prefs.setIconPack(this, pkg);
+        IconEngine.Pack.reset();
+        if (pkg == null) {
+            applyHome();
+            return;
+        }
+        Sheet.pill(this, backdrop, "Cargando íconos…");
+        Context app = getApplicationContext();
+        // El paquete se lee fuera del hilo principal para que no se trabe
+        Gadgets.BG.execute(() -> {
+            IconEngine.Pack.get(app, "android");
+            Gadgets.MAIN.post(this::applyHome);
+        });
+    }
+
+    // ==================== Fotos ====================
 
     @Override
     public void pickPhoto() {
+        pickImage(REQ_PHOTO);
+    }
+
+    private void pickImage(int req) {
         Intent i;
-        if (android.os.Build.VERSION.SDK_INT >= 33) {
+        if (Build.VERSION.SDK_INT >= 33) {
             i = new Intent(MediaStore.ACTION_PICK_IMAGES);
             i.setType("image/*");
         } else {
@@ -829,12 +1483,12 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
             i.setType("image/*");
         }
         try {
-            startActivityForResult(i, REQ_PHOTO);
+            startActivityForResult(i, req);
         } catch (ActivityNotFoundException e) {
             Intent g = new Intent(Intent.ACTION_GET_CONTENT);
             g.setType("image/*");
             try {
-                startActivityForResult(g, REQ_PHOTO);
+                startActivityForResult(g, req);
             } catch (ActivityNotFoundException ignored) {
                 Sheet.pill(this, backdrop, "No encontré una galería");
             }
@@ -886,59 +1540,93 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
 
     private void refreshDock() {
         boolean studying = Prefs.studying(this);
+        int n = Prefs.dockCount(this);
+        Set<String> inDock = new HashSet<>();
+        for (int i = 0; i < n; i++) {
+            String p = Prefs.slot(this, i);
+            if (p != null) inDock.add(p);
+        }
+        List<String> sugg = Prefs.dockSuggest(this) ? IconEngine.suggestions(this, n, inDock) : Collections.emptyList();
+        int s = 0;
         for (int i = 0; i < Prefs.SLOTS; i++) {
             ImageView iv = dockIcons[i];
             String pkg = Prefs.slot(this, i);
-            Drawable icon = null;
-            if (pkg != null && getPackageManager().getLaunchIntentForPackage(pkg) != null) icon = Icons.app(this, pkg, Prefs.iconStyle(this));
-            if (icon != null) {
-                iv.setImageDrawable(icon);
+            boolean real = pkg != null && getPackageManager().getLaunchIntentForPackage(pkg) != null;
+            boolean suggested = false;
+            if (!real && i < n && s < sugg.size()) {
+                pkg = sugg.get(s++);
+                real = true;
+                suggested = true;
+            }
+            dockShown[i] = real ? pkg : null;
+            if (real) {
+                IconEngine.bind(iv, pkg);
                 iv.setPadding(0, 0, 0, 0);
                 iv.setBackground(null);
-                iv.setAlpha(studying && Prefs.DISTRACTIONS.contains(pkg) ? 0.25f : 1f);
+                iv.setAlpha(studying && Prefs.DISTRACTIONS.contains(pkg) ? 0.25f : suggested ? 0.8f : 1f);
+                dockSlots[i].setForeground(suggested ? Ui.outline(this, 0, 0x55FFFFFF, 18) : null);
             } else {
                 Icons.Line plus = Icons.of(Icons.PLUS);
                 plus.setColor(0xB3FFFFFF);
                 iv.setImageDrawable(plus);
+                iv.setClipToOutline(false);
                 int p = Ui.dp(this, 11);
                 iv.setPadding(p, p, p, p);
                 iv.setBackground(Ui.outline(this, 0x0FFFFFFF, 0x33FFFFFF, 22));
                 iv.setAlpha(1f);
+                dockSlots[i].setForeground(null);
             }
+        }
+        refreshDockBadges();
+    }
+
+    private void refreshDockBadges() {
+        for (int i = 0; i < Prefs.SLOTS; i++) {
+            String pkg = dockShown[i];
+            dockBadges[i].setBackground(Ui.outline(this, Theme.accent, 0xFF0E0F12, 6));
+            dockBadges[i].setVisibility(pkg != null && badges.contains(pkg) ? View.VISIBLE : View.GONE);
         }
     }
 
     private void onDockTap(int slot, View v) {
-        String pkg = Prefs.slot(this, slot);
-        if (pkg == null || getPackageManager().getLaunchIntentForPackage(pkg) == null) {
+        String pkg = dockShown[slot];
+        if (pkg == null) {
             Sound.play(v, Sound.TAP);
             pickApp(slot);
             return;
         }
-        if (Prefs.studying(this) && Prefs.DISTRACTIONS.contains(pkg)) {
-            Sound.play(v, Sound.ERROR);
-            Sheet.confirm(this, backdrop, "Estás en modo estudio",
-                    "Esta app está en pausa hasta que termine tu sesión. ¿La abres de todos modos?",
-                    "Abrir", false, () -> launch(this, pkg, v));
-            return;
-        }
-        Sound.play(v, Sound.OPEN);
-        launch(this, pkg, v);
+        launchApp(pkg, v);
     }
 
     private void onDockLongPress(int slot) {
         String pkg = Prefs.slot(this, slot);
+        String shown = dockShown[slot];
+        if (pkg == null && shown != null) {
+            Sheet.show(this, backdrop, "Sugerencia: " + IconEngine.label(this, shown),
+                    Sheet.item("Dejarla fija aquí", Icons.HOME, () -> {
+                        Prefs.setSlot(this, slot, shown);
+                        refreshDock();
+                    }),
+                    Sheet.item("Elegir otra app", Icons.SWAP, () -> pickApp(slot)),
+                    Sheet.item("Apagar sugerencias", Icons.CLOSE, () -> {
+                        Prefs.setDockSuggest(this, false);
+                        refreshDock();
+                    }));
+            return;
+        }
         if (pkg == null) {
             pickApp(slot);
             return;
         }
-        Sheet.show(this, backdrop, "Dock",
-                Sheet.item("Cambiar app", Icons.SWAP, () -> pickApp(slot)),
-                Sheet.item("Información de la app", Icons.INFO, () -> appInfo(this, pkg)),
-                Sheet.item("Quitar del dock", Icons.CLOSE, () -> {
-                    Prefs.setSlot(this, slot, null);
-                    refreshDock();
-                }).danger());
+        List<Sheet.Item> list = new ArrayList<>(HomeMenus.shortcutItems(this, pkg));
+        list.add(Sheet.item("Cambiar app", Icons.SWAP, () -> pickApp(slot)));
+        list.add(Sheet.item("Cambiar ícono o nombre", Icons.IMAGE, () -> HomeMenus.iconMenu(this, pkg)));
+        list.add(Sheet.item("Información de la app", Icons.INFO, () -> appInfo(this, pkg)));
+        list.add(Sheet.item("Quitar del dock", Icons.CLOSE, () -> {
+            Prefs.setSlot(this, slot, null);
+            refreshDock();
+        }).danger());
+        Sheet.show(this, backdrop, IconEngine.label(this, pkg), list);
     }
 
     private void pickApp(int slot) {
@@ -948,9 +1636,55 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
         overridePendingTransition(Screen.anim(this, "screen_enter"), Screen.anim(this, "stay_out"));
     }
 
-    // ==================== Paneles ====================
+    /** Vuelve a dibujar el ícono y el nombre de una app en inicio, carpetas, dock y cajón. */
+    void refreshIcons(String pkg) {
+        Drawer.trim();
+        for (HomeModel.Item it : new ArrayList<>(home.model.items)) {
+            boolean match = it.type.equals("app") && pkg.equals(it.str("pkg", ""));
+            if (it.type.equals("folder")) {
+                JSONArray a = it.apps();
+                for (int i = 0; i < a.length(); i++) if (pkg.equals(a.optString(i))) match = true;
+            }
+            if (match) home.replaceView(it);
+        }
+        refreshDock();
+    }
 
-    private void toggleStudy() {
+    /** Una app se desinstaló: se quita de inicio, de las carpetas y del dock. */
+    private void removeApp(String pkg) {
+        boolean changed = false;
+        for (HomeModel.Item it : new ArrayList<>(home.model.items)) {
+            if (it.type.equals("app") && pkg.equals(it.str("pkg", ""))) {
+                home.model.items.remove(it);
+                changed = true;
+            } else if (it.type.equals("folder")) {
+                JSONArray a = it.apps(), keep = new JSONArray();
+                for (int i = 0; i < a.length(); i++) if (!pkg.equals(a.optString(i))) keep.put(a.optString(i));
+                if (keep.length() != a.length()) {
+                    changed = true;
+                    if (keep.length() == 0) {
+                        home.model.items.remove(it);
+                    } else if (keep.length() == 1) {
+                        it.type = "app";
+                        String only = keep.optString(0);
+                        it.data = new org.json.JSONObject();
+                        it.put("pkg", only);
+                    } else {
+                        it.put("apps", keep);
+                    }
+                }
+            }
+        }
+        for (int i = 0; i < Prefs.SLOTS; i++) if (pkg.equals(Prefs.slot(this, i))) Prefs.setSlot(this, i, null);
+        if (changed) {
+            home.saveModel();
+            home.populate();
+        }
+    }
+
+    // ==================== Estudio y Jarvis ====================
+
+    void toggleStudy() {
         if (Prefs.studying(this)) {
             Sheet.confirm(this, backdrop, "¿Terminar el modo estudio?", "Las apps que distraen vuelven a estar disponibles.",
                     "Terminar", false, () -> {
@@ -975,41 +1709,21 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
 
     private void refreshStudy() {
         boolean on = Prefs.studying(this);
+        String chip = null;
         if (on) {
             long left = Prefs.studyEnd(this) - System.currentTimeMillis();
             int min = (int) Math.ceil(left / 60_000.0);
-            clock.setStudy("MODO ESTUDIO  ·  " + min + " MIN");
-            studySub.setText("Faltan " + min + " min");
-            long total = 90 * 60_000L;
-            for (int m : new int[]{25, 50, 90}) {
-                if (left <= m * 60_000L) {
-                    total = m * 60_000L;
-                    break;
-                }
-            }
-            studyIcon.setProgress(left / (float) total);
-        } else {
-            clock.setStudy(null);
-            studySub.setText("Modo enfoque");
-            studyIcon.setProgress(0);
-            if (wasStudying) Sheet.pill(this, backdrop, "Terminó tu sesión de estudio. Buen trabajo.");
+            chip = "MODO ESTUDIO  ·  " + min + " MIN";
+        } else if (wasStudying) {
+            Sheet.pill(this, backdrop, "Terminó tu sesión de estudio. Buen trabajo.");
         }
+        final String c = chip;
+        home.forEachGadget(g -> {
+            if (g instanceof Gadgets.ClockG && ((Gadgets.ClockG) g).cv != null) ((Gadgets.ClockG) g).cv.setStudy(c);
+            else if (g instanceof Gadgets.StudyG) g.tick();
+        });
         if (on != wasStudying) refreshDock();
         wasStudying = on;
-    }
-
-    private void refreshTasks() {
-        int pending = 0;
-        try {
-            JSONArray arr = new JSONArray(Prefs.tasks(this));
-            for (int k = 0; k < arr.length(); k++) {
-                JSONObject o = arr.getJSONObject(k);
-                if (!o.optBoolean("d")) pending++;
-            }
-        } catch (Exception ignored) {
-            pending = 0;
-        }
-        tasksSub.setText(pending == 0 ? "Ponte en el Mapa" : pending + (pending == 1 ? " pendiente" : " pendientes"));
     }
 
     private void openJarvis() {
@@ -1021,17 +1735,22 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
         try {
             startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=" + CLAUDE_PKG)));
         } catch (ActivityNotFoundException e) {
-            try {
-                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=" + CLAUDE_PKG)));
-            } catch (Exception ignored) {
-                // nada
-            }
+            startSafe(new Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=" + CLAUDE_PKG)), null);
         }
     }
 
-    // ==================== Calendario flotante ====================
+    // ==================== Notificaciones (Media.Listener) ====================
 
-    private void showOverlay(View panel, FrameLayout.LayoutParams lp) {
+    @Override
+    public void onMediaChanged() {
+        badges = Prefs.badges(this) ? Media.badgePackages(this) : new HashSet<>();
+        home.onMedia(badges);
+        refreshDockBadges();
+    }
+
+    // ==================== Ventana flotante (calendario, carpetas) ====================
+
+    void showOverlay(View panel, FrameLayout.LayoutParams lp) {
         overlay.removeAllViews();
         View dim = new View(this);
         dim.setBackgroundColor(0x66000000);
@@ -1051,14 +1770,18 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
                 .setInterpolator(new OvershootInterpolator(1.3f)).start();
     }
 
-    private void closeOverlay() {
+    void closeOverlay() {
         overlay.animate().alpha(0f).setStartDelay(0).setDuration(200).withEndAction(() -> {
             overlay.setVisibility(View.GONE);
             overlay.removeAllViews();
         }).start();
     }
 
-    private void showCalendar() {
+    int insetTop() {
+        return insetTop;
+    }
+
+    void showCalendar() {
         CalendarPanel cal = new CalendarPanel(this, backdrop, "Ver pendientes", () -> {
             closeOverlay();
             Screen.open(this, new Intent(this, PendientesActivity.class));
@@ -1117,9 +1840,14 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
         if (i.hasExtra("demo_city")) {
             Prefs.setCity(this, i.getStringExtra("demo_city"));
             Weather.refresh(this, true, n -> {
-                clock.refresh();
+                home.tick();
                 dashboard.refreshWeather();
             });
+            any = true;
+        }
+        if (i.hasExtra("demo_free")) {
+            Prefs.setHomeFree(this, i.getBooleanExtra("demo_free", false));
+            applyHome();
             any = true;
         }
         String photo = i.getStringExtra("demo_photo");
@@ -1134,23 +1862,8 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
         if (shot != null) {
             any = true;
             int tab = i.getIntExtra("tab", 0);
-            handler.postDelayed(() -> {
-                switch (shot) {
-                    case "studio": Studio.show(this, this, tab); break;
-                    case "dashboard": dashboard.setProgress(0f); openDashboard(); break;
-                    case "drawer": openDrawer(false); break;
-                    case "calendar": showCalendar(); break;
-                    case "study":
-                        Prefs.setStudyEnd(this, System.currentTimeMillis() + 25 * 60_000L);
-                        refreshStudy();
-                        break;
-                    case "nostudy":
-                        Prefs.setStudyEnd(this, 0);
-                        refreshStudy();
-                        break;
-                    default: break;
-                }
-            }, 900);
+            String arg = i.getStringExtra("arg");
+            handler.postDelayed(() -> demoShot(shot, tab, arg), 900);
         }
         String open = i.getStringExtra("open");
         if (open != null) {
@@ -1162,8 +1875,88 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
             handler.postDelayed(() -> Screen.open(this, x), 300);
         }
         // Que no se repitan si la actividad se recrea
-        for (String k : new String[]{"demo_reset", "theme", "demo_effect", "demo_overlay", "demo_clock", "demo_city", "demo_photo", "shot", "open"}) i.removeExtra(k);
+        for (String k : new String[]{"demo_reset", "theme", "demo_effect", "demo_overlay", "demo_clock", "demo_city", "demo_photo",
+                "demo_free", "shot", "open", "arg"}) i.removeExtra(k);
         return any;
+    }
+
+    private void demoShot(String shot, int tab, String arg) {
+        switch (shot) {
+            case "studio": Studio.show(this, this, tab); break;
+            case "dashboard": dashboard.setProgress(0f); openDashboard(); break;
+            case "drawer": openDrawer(false); break;
+            case "calendar": showCalendar(); break;
+            case "study":
+                Prefs.setStudyEnd(this, System.currentTimeMillis() + 25 * 60_000L);
+                refreshStudy();
+                break;
+            case "nostudy":
+                Prefs.setStudyEnd(this, 0);
+                refreshStudy();
+                break;
+            case "page": home.goTo(tab, true); break;
+            case "edit": home.setEditing(true); break;
+            case "done": home.setEditing(false); break;
+            case "picker": HomeMenus.widgets(this); break;
+            case "picker_apps": HomeMenus.widgetsTab = 1; HomeMenus.widgets(this); break;
+            case "select": {
+                home.setEditing(true);
+                for (HomeModel.Item it : home.model.on(home.page)) {
+                    if (home.resizable(it)) {
+                        home.select(it);
+                        break;
+                    }
+                }
+                break;
+            }
+            case "menu": {
+                for (HomeModel.Item it : home.model.on(home.page)) {
+                    if (arg == null || arg.equals(it.type)) {
+                        itemMenu(it);
+                        break;
+                    }
+                }
+                break;
+            }
+            case "add": {
+                Gadgets.Spec s = Gadgets.spec(arg == null ? "nota" : arg);
+                if (s != null) addGadget(s);
+                break;
+            }
+            case "aw": {
+                // Agrega el primer widget de una app (para probar los widgets de Android)
+                AppWidgetProviderInfo pick = null;
+                for (AppWidgetProviderInfo info : AppWidgets.mgr(this).getInstalledProviders()) {
+                    boolean match = arg == null ? info.configure == null : info.provider.getPackageName().equals(arg);
+                    if (match) {
+                        pick = info;
+                        break;
+                    }
+                }
+                if (pick != null) addSystemWidget(pick);
+                else Sheet.pill(this, backdrop, "No hay widgets de otras apps para probar");
+                break;
+            }
+            case "folder": {
+                List<String> apps = new ArrayList<>();
+                Drawer.apps(this, list -> {
+                    for (Drawer.App x : list) {
+                        if (apps.size() < 4) apps.add(x.pkg);
+                    }
+                    if (apps.size() < 2) return;
+                    HomeModel.Item f = home.place("folder", 1, 1, x -> {
+                        x.put("name", "Favoritas");
+                        JSONArray arr = new JSONArray();
+                        for (String p : apps) arr.put(p);
+                        x.put("apps", arr);
+                    });
+                    if (f != null) handler.postDelayed(() -> HomeMenus.folder(this, f, home.viewOf(f)), 600);
+                });
+                break;
+            }
+            case "undo": home.undo(); break;
+            default: break;
+        }
     }
 
     // ==================== Utilidades ====================
@@ -1173,7 +1966,7 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
         if (i == null) return;
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         Bundle opts = null;
-        if (from != null) opts = ActivityOptions.makeScaleUpAnimation(from, 0, 0, from.getWidth(), from.getHeight()).toBundle();
+        if (from != null && from.getWidth() > 0) opts = ActivityOptions.makeScaleUpAnimation(from, 0, 0, from.getWidth(), from.getHeight()).toBundle();
         try {
             a.startActivity(i, opts);
         } catch (Exception ignored) {

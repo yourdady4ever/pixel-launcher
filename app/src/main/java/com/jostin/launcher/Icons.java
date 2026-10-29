@@ -312,6 +312,11 @@ final class Icons {
      */
     /** Estilos: 0 monocromo blanco, 1 originales, 2 en el color de acento. */
     static Drawable app(Context c, String pkg, int style) {
+        return app(c, pkg, style, false);
+    }
+
+    /** fill: el ícono ocupa todo su cuadro porque la vista lo recorta con la forma elegida. */
+    static Drawable app(Context c, String pkg, int style, boolean fill) {
         Drawable icon;
         try {
             icon = c.getPackageManager().getApplicationIcon(pkg);
@@ -322,13 +327,13 @@ final class Icons {
         int color = style == 2 ? Theme.accent : 0xFFF2F3F5;
         if (android.os.Build.VERSION.SDK_INT >= 33 && icon instanceof AdaptiveIconDrawable) {
             Drawable m = ((AdaptiveIconDrawable) icon).getMonochrome();
-            if (m != null) return new Mono(m.mutate(), color, style == 2);
+            if (m != null) return new Mono(m.mutate(), color, style == 2, fill);
         }
         Drawable g = icon.mutate();
         ColorMatrix cm = new ColorMatrix();
         cm.setSaturation(0f);
         g.setColorFilter(new ColorMatrixColorFilter(cm));
-        return g;
+        return fill ? new IconEngine.FullBleed(g) : g;
     }
 
     /** Capa monocroma en blanco sobre un círculo de vidrio claro. */
@@ -339,9 +344,11 @@ final class Icons {
         private final Path clip = new Path();
 
         private final int bgAlpha;
+        private final boolean fill;
 
-        Mono(Drawable layer, int color, boolean tinted) {
+        Mono(Drawable layer, int color, boolean tinted, boolean fill) {
             this.layer = layer;
+            this.fill = fill;
             layer.setColorFilter(new PorterDuffColorFilter(color, PorterDuff.Mode.SRC_IN));
             bg.setColor(tinted ? Ui.alpha(color, 0x2E) : 0x24FFFFFF);
             bgAlpha = Ui.alphaOf(bg.getColor());
@@ -356,7 +363,8 @@ final class Icons {
             float extra = b.width() * 0.25f;
             layer.setBounds((int) (b.left - extra), (int) (b.top - extra), (int) (b.right + extra), (int) (b.bottom + extra));
             clip.reset();
-            clip.addCircle(b.exactCenterX(), b.exactCenterY(), b.width() / 2f, Path.Direction.CW);
+            if (fill) clip.addRect(b.left, b.top, b.right, b.bottom, Path.Direction.CW);
+            else clip.addCircle(b.exactCenterX(), b.exactCenterY(), b.width() / 2f, Path.Direction.CW);
             ring.setStrokeWidth(Math.max(1f, b.width() / 60f));
         }
 
@@ -364,12 +372,13 @@ final class Icons {
         public void draw(Canvas c) {
             Rect b = getBounds();
             float r = b.width() / 2f;
-            c.drawCircle(b.exactCenterX(), b.exactCenterY(), r, bg);
+            if (fill) c.drawRect(b, bg);
+            else c.drawCircle(b.exactCenterX(), b.exactCenterY(), r, bg);
             c.save();
             c.clipPath(clip);
             layer.draw(c);
             c.restore();
-            c.drawCircle(b.exactCenterX(), b.exactCenterY(), r - ring.getStrokeWidth() / 2, ring);
+            if (!fill) c.drawCircle(b.exactCenterX(), b.exactCenterY(), r - ring.getStrokeWidth() / 2, ring);
         }
 
         @Override public void setAlpha(int a) { bg.setAlpha(a * bgAlpha / 255); layer.setAlpha(a); }

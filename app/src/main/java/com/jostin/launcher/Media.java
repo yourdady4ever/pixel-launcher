@@ -32,9 +32,10 @@ final class Media {
     }
 
     static final class Note {
-        String pkg, title, text;
+        String pkg, title, text, key;
         long time;
         PendingIntent intent;
+        boolean clearable, autoCancel;
     }
 
     private static final Handler main = new Handler(Looper.getMainLooper());
@@ -314,7 +315,30 @@ final class Media {
             note.text = text == null ? "" : text.toString();
             note.time = n.getPostTime();
             note.intent = no.contentIntent;
+            note.key = n.getKey();
+            note.clearable = n.isClearable();
+            note.autoCancel = (no.flags & Notification.FLAG_AUTO_CANCEL) != 0;
             out.add(note);
+        }
+        return out;
+    }
+
+    /** Apps con notificaciones activas (para el puntito en sus íconos). */
+    static java.util.Set<String> badgePackages(Context c) {
+        java.util.Set<String> out = new java.util.HashSet<>();
+        NotifService s = NotifService.instance;
+        if (s == null) return out;
+        try {
+            StatusBarNotification[] all = s.getActiveNotifications();
+            if (all == null) return out;
+            for (StatusBarNotification n : all) {
+                if (n.isOngoing()) continue;
+                Notification no = n.getNotification();
+                if ((no.flags & Notification.FLAG_GROUP_SUMMARY) != 0) continue;
+                out.add(n.getPackageName());
+            }
+        } catch (Exception ignored) {
+            // sin acceso
         }
         return out;
     }

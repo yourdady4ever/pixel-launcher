@@ -5,12 +5,38 @@
     <uses-permission android:name="android.permission.EXPAND_STATUS_BAR" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.SET_WALLPAPER" />
+    <!-- Solo para el widget de agenda; se pide al agregarlo -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
 
     <!-- Para poder ver y abrir las apps instaladas (Android 11+) -->
     <queries>
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <!-- Apps con widgets -->
+        <intent>
+            <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+        </intent>
+        <!-- Paquetes de íconos (formato Nova / ADW) -->
+        <intent>
+            <action android:name="org.adw.launcher.THEMES" />
+        </intent>
+        <intent>
+            <action android:name="com.novalauncher.THEME" />
+        </intent>
+        <intent>
+            <action android:name="com.gau.go.launcherex.theme" />
+        </intent>
+        <intent>
+            <action android:name="com.teslacoilsw.launcher.THEME" />
+        </intent>
+        <intent>
+            <action android:name="com.anddoes.launcher.THEME" />
+        </intent>
+        <!-- Búsqueda por voz y apps de música -->
+        <intent>
+            <action android:name="android.speech.action.WEB_SEARCH" />
         </intent>
     </queries>
 
@@ -30,6 +56,7 @@
             android:excludeFromRecents="true"
             android:resizeableActivity="true"
             android:screenOrientation="portrait"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenSize|screenLayout|smallestScreenSize"
             android:windowSoftInputMode="adjustResize|stateHidden">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

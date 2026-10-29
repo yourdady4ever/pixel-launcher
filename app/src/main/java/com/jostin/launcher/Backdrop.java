@@ -58,7 +58,7 @@ class Backdrop extends View implements SensorEventListener {
     private boolean ticking = false, smallDirty = true;
 
     private SensorManager sensors;
-    private float gx = 0, gy = 7.5f, px = 0, py = 0;
+    private float gx = 0, gy = 7.5f, px = 0, py = 0, pageX = 0;
 
     private final BroadcastReceiver powerReceiver = new BroadcastReceiver() {
         @Override
@@ -90,6 +90,20 @@ class Backdrop extends View implements SensorEventListener {
 
     Scenes.Scene scene() {
         return scene;
+    }
+
+    /**
+     * Mueve el fondo un poco al pasar de página en inicio. f: 0 primera página, 1 la última.
+     * strength: qué tanto se mueve (1 = todo lo que sobra del fondo).
+     */
+    void setPageScroll(float f, float strength) {
+        float sparePx = (scene.w - getWidth()) / 2f - 14 * getResources().getDisplayMetrics().density;
+        float n = Math.max(0, sparePx) * (0.5f - f) * 2f * strength;
+        if (Math.abs(n - pageX) < 0.5f) return;
+        pageX = n;
+        smallDirty = true;
+        invalidate();
+        kick();
     }
 
     /** Oscurece el fondo para pantallas secundarias (0 = normal). */
@@ -221,7 +235,7 @@ class Backdrop extends View implements SensorEventListener {
 
     /** Toque del dedo sobre el fondo (la constelación se aparta). */
     void touch(float x, float y, boolean down) {
-        scene.touch(x + (scene.w - getWidth()) / 2f - px, y + (scene.h - getHeight()) / 2f - py, down);
+        scene.touch(x + (scene.w - getWidth()) / 2f - px - pageX, y + (scene.h - getHeight()) / 2f - py, down);
         kick();
     }
 
@@ -244,7 +258,7 @@ class Backdrop extends View implements SensorEventListener {
     }
 
     float sceneLeft() {
-        return -(scene.w - getWidth()) / 2f + px;
+        return -(scene.w - getWidth()) / 2f + px + pageX;
     }
 
     float sceneTop() {
@@ -342,7 +356,7 @@ class Backdrop extends View implements SensorEventListener {
     private void sizeScenes() {
         int w = getWidth(), h = getHeight();
         if (w == 0 || h == 0) return;
-        float over = 1.06f;
+        float over = 1.12f;
         int sw = Math.round(w * over), sh = Math.round(h * over);
         if (scene.w != sw || scene.h != sh) scene.size(sw, sh);
         if (previous != null && (previous.w != sw || previous.h != sh)) previous.size(sw, sh);
@@ -410,7 +424,7 @@ class Backdrop extends View implements SensorEventListener {
         if (w == 0) return;
         if (scene.w == 0) sizeScenes();
         canvas.save();
-        canvas.translate(-(scene.w - w) / 2f + px, -(scene.h - h) / 2f + py);
+        canvas.translate(-(scene.w - w) / 2f + px + pageX, -(scene.h - h) / 2f + py);
         float f = fade();
         if (previous != null && f < 1f) {
             previous.draw(canvas, t);

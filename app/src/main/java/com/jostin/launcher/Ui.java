@@ -54,6 +54,16 @@ final class Ui {
         }
     }
 
+    /** Qué tan largas son las animaciones según la preferencia: 1 normal, 0 apagadas. */
+    static float motion(Context c) {
+        switch (Prefs.motion(c)) {
+            case 1: return 0.6f;
+            case 2: return 0.5f;
+            case 3: return 0f;
+            default: return 1f;
+        }
+    }
+
     static int dp(Context c, float v) {
         return Math.round(v * c.getResources().getDisplayMetrics().density);
     }

@@ -24,9 +24,16 @@ final class Studio {
         void requestLock();
         void askCity();
         void askGreeting();
+        void editHome();
+        void openWidgets();
+        void restoreHome();
+        void resetHome();
+        void previewTransition();
+        void chooseIconPack();
     }
 
-    static final String[] TABS = {"Fondo", "Color", "Reloj", "Inicio", "Gestos", "Sonido"};
+    static final String[] TABS = {"Fondo", "Color", "Inicio", "Íconos", "Dock", "Reloj", "Gestos", "Sonido"};
+    static final int TAB_HOME = 2, TAB_ICONS = 3, TAB_DOCK = 4;
     static WallStrip strip;
     private static int lastTab = 0;
 
@@ -65,9 +72,11 @@ final class Studio {
         switch (tab) {
             case 0: wallpaper(a, h, col); break;
             case 1: color(a, h, col); break;
-            case 2: clock(a, h, col); break;
-            case 3: home(a, h, col); break;
-            case 4: gestures(a, h, col); break;
+            case 2: home(a, h, col); break;
+            case 3: icons(a, h, col); break;
+            case 4: dock(a, h, col); break;
+            case 5: clock(a, h, col); break;
+            case 6: gestures(a, h, col); break;
             default: sound(a, h, col); break;
         }
         body.addView(col, new FrameLayout.LayoutParams(-1, -2));
@@ -208,29 +217,103 @@ final class Studio {
         col.addView(Ctl.section(a, "Texto"));
         String g = Prefs.greeting(a);
         col.addView(Ctl.action(a, Icons.SPARK, "Frase bajo el reloj", g.isEmpty() ? "Ninguna" : shorten(g), v -> h.askGreeting()));
-    }
-
-    // ---------- Inicio ----------
-
-    private static void home(Activity a, Host h, LinearLayout col) {
-        col.addView(Ctl.section(a, "Qué se ve en inicio"));
-        col.addView(Ctl.toggle(a, "Atajos", "Calculadora, estudio, pendientes y Jarvis.", Prefs.showPanels(a), v -> {
-            Prefs.setShowPanels(a, v);
-            h.applyHome();
-        }));
-        col.addView(Ctl.toggle(a, "Música", "Aparece cuando algo está sonando.", Prefs.showMusic(a), v -> {
-            Prefs.setShowMusic(a, v);
-            h.applyHome();
-        }));
         col.addView(Ctl.toggle(a, "Clima bajo el reloj", null, Prefs.showWeather(a), v -> {
             Prefs.setShowWeather(a, v);
             h.applyHome();
         }));
         String city = Prefs.city(a);
         col.addView(Ctl.action(a, Weather.SUN_CLOUD, "Ciudad del clima", city.isEmpty() ? "Elegir" : shorten(city), v -> h.askCity()));
-        View gap = new View(a);
-        col.addView(gap, new LinearLayout.LayoutParams(1, Ui.dp(a, 6)));
-        col.addView(Ctl.toggle(a, "Dock", null, Prefs.showDock(a), v -> {
+        TextView tip = Ui.text(a, "Esto cambia todos los widgets de reloj que tengas en inicio.", 12, Ui.MUTED, Ui.REGULAR);
+        tip.setPadding(Ui.dp(a, 4), Ui.dp(a, 12), 0, 0);
+        col.addView(tip);
+    }
+
+    // ---------- Inicio ----------
+
+    private static void home(Activity a, Host h, LinearLayout col) {
+        col.addView(Ctl.section(a, "Tu pantalla de inicio"));
+        col.addView(Ctl.action(a, Icons.SHAPES, "Editar inicio", "Mover y acomodar", v -> Sheet.dismiss(a, h::editHome)));
+        col.addView(Ctl.action(a, Icons.PLUS, "Agregar widget", "Más de 20", v -> Sheet.dismiss(a, h::openWidgets)));
+        col.addView(Ctl.section(a, "Acomodo"));
+        col.addView(Ctl.chips(a, new String[]{"Cuadrícula", "Libre"}, Prefs.homeFree(a) ? 1 : 0, v -> {
+            Prefs.setHomeFree(a, v == 1);
+            h.applyHome();
+        }));
+        TextView hint = Ui.text(a, "En «Libre» los widgets se acomodan en cuartos de celda, se pueden encimar, girar los decorativos y ordenar por capas. Al volver a «Cuadrícula» se reacomoda lo que quede encimado.", 12, Ui.MUTED, Ui.REGULAR);
+        hint.setLineSpacing(0, 1.2f);
+        hint.setPadding(Ui.dp(a, 4), Ui.dp(a, 10), 0, Ui.dp(a, 4));
+        col.addView(hint);
+        col.addView(Ctl.section(a, "Transición entre páginas"));
+        col.addView(Ctl.chips(a, HomeView.TRANSITIONS, Prefs.pageAnim(a), v -> {
+            Prefs.setPageAnim(a, v);
+            h.previewTransition();
+        }));
+        col.addView(Ctl.section(a, "Detalles"));
+        col.addView(Ctl.toggle(a, "Nombres de las apps", null, Prefs.homeLabels(a), v -> {
+            Prefs.setHomeLabels(a, v);
+            h.applyHome();
+        }));
+        col.addView(Ctl.toggle(a, "Puntos de notificación", "Un punto en el ícono de las apps con avisos sin ver.", Prefs.badges(a), v -> {
+            Prefs.setBadges(a, v);
+            h.applyHome();
+        }));
+        col.addView(Ctl.toggle(a, "Bloquear diseño", "Nada se mueve por accidente. Para acomodar, apágalo aquí.", Prefs.homeLocked(a), v -> {
+            Prefs.setHomeLocked(a, v);
+            h.applyHome();
+        }));
+        col.addView(Ctl.section(a, "Copias de seguridad"));
+        col.addView(Ctl.action(a, Icons.HISTORY, "Restaurar una copia", String.valueOf(Safety.tags(a).size()), v -> h.restoreHome()));
+        col.addView(Ctl.action(a, Icons.TRASH, "Empezar de cero", null, v -> h.resetHome()));
+        int n = Prefs.hidden(a).size();
+        col.addView(Ctl.action(a, Icons.SHAPES, "Apps ocultas", n == 0 ? "Ninguna" : String.valueOf(n), v -> h.showHiddenApps()));
+    }
+
+    // ---------- Íconos ----------
+
+    private static void icons(Activity a, Host h, LinearLayout col) {
+        col.addView(Ctl.section(a, "Estilo"));
+        col.addView(Ctl.chips(a, new String[]{"Monocromos", "Originales", "De color"}, Prefs.iconStyle(a), v -> {
+            Prefs.setIconStyle(a, v);
+            h.applyHome();
+        }));
+        col.addView(Ctl.section(a, "Forma"));
+        col.addView(Ctl.chips(a, IconEngine.SHAPES, Prefs.iconShape(a), v -> {
+            Prefs.setIconShape(a, v);
+            h.applyHome();
+        }));
+        if (android.os.Build.VERSION.SDK_INT < 33) {
+            TextView t = Ui.text(a, "En esta versión de Android, Squircle y Gota se ven como cuadro redondeado.", 12, Ui.MUTED, Ui.REGULAR);
+            t.setPadding(Ui.dp(a, 4), Ui.dp(a, 8), 0, 0);
+            col.addView(t);
+        }
+        col.addView(Ctl.section(a, "Tamaño en inicio"));
+        col.addView(Ctl.slider(a, "Tamaño", 70, 130, Prefs.iconScale(a), "%", (v, done) -> {
+            if (done) {
+                Prefs.setIconScale(a, v);
+                h.applyHome();
+            }
+        }));
+        col.addView(Ctl.toggle(a, "Brillo detrás del ícono", "Un halo suave con tu color de acento.", Prefs.iconGlow(a), v -> {
+            Prefs.setIconGlow(a, v);
+            h.applyHome();
+        }));
+        col.addView(Ctl.section(a, "Paquete de íconos"));
+        String pack = Prefs.iconPack(a);
+        String name = "Ninguno";
+        if (pack != null) {
+            for (String[] p : IconEngine.Pack.installed(a)) if (p[0].equals(pack)) name = p[1];
+        }
+        col.addView(Ctl.action(a, Icons.SHAPES, "Paquete", shorten(name), v -> h.chooseIconPack()));
+        TextView tip = Ui.text(a, "Funciona con paquetes de Play Store hechos para Nova o ADW. Para cambiar el ícono o el nombre de una sola app, mantenla presionada en inicio.", 12, Ui.MUTED, Ui.REGULAR);
+        tip.setLineSpacing(0, 1.2f);
+        tip.setPadding(Ui.dp(a, 4), Ui.dp(a, 10), 0, 0);
+        col.addView(tip);
+    }
+
+    // ---------- Dock ----------
+
+    private static void dock(Activity a, Host h, LinearLayout col) {
+        col.addView(Ctl.toggle(a, "Mostrar el dock", null, Prefs.showDock(a), v -> {
             Prefs.setShowDock(a, v);
             h.applyHome();
         }));
@@ -239,16 +322,34 @@ final class Studio {
             Prefs.setDockCount(a, v + 4);
             h.applyHome();
         }));
-        col.addView(Ctl.section(a, "Íconos"));
-        col.addView(Ctl.chips(a, new String[]{"Monocromos", "Originales", "De color"}, Prefs.iconStyle(a), v -> {
-            Prefs.setIconStyle(a, v);
-            Drawer.trim();
+        col.addView(Ctl.slider(a, "Tamaño de los íconos", 36, 56, Prefs.dockIconSize(a), " dp", (v, done) -> {
+            if (done) {
+                Prefs.setDockIconSize(a, v);
+                h.applyHome();
+            }
+        }));
+        col.addView(Ctl.slider(a, "Separación", 0, 10, Prefs.dockSpacing(a), " dp", (v, done) -> {
+            if (done) {
+                Prefs.setDockSpacing(a, v);
+                h.applyHome();
+            }
+        }));
+        col.addView(Ctl.toggle(a, "Fondo de vidrio", null, Prefs.dockGlass(a), v -> {
+            Prefs.setDockGlass(a, v);
             h.applyHome();
         }));
-        View gap2 = new View(a);
-        col.addView(gap2, new LinearLayout.LayoutParams(1, Ui.dp(a, 14)));
-        int n = Prefs.hidden(a).size();
-        col.addView(Ctl.action(a, Icons.SHAPES, "Apps ocultas", n == 0 ? "Ninguna" : String.valueOf(n), v -> h.showHiddenApps()));
+        col.addView(Ctl.toggle(a, "Sugerencias en lugares vacíos", "Las apps que más abres llenan los huecos del dock. Mantén presionada una para dejarla fija.", Prefs.dockSuggest(a), v -> {
+            Prefs.setDockSuggest(a, v);
+            h.applyHome();
+        }));
+        col.addView(Ctl.toggle(a, "Sugerencias en el cajón", "Tus apps más usadas arriba de la lista.", Prefs.drawerSuggest(a), v -> {
+            Prefs.setDrawerSuggest(a, v);
+            h.applyHome();
+        }));
+        TextView tip = Ui.text(a, "Lo que abres se cuenta solo en tu teléfono para las sugerencias; no sale de aquí.", 12, Ui.MUTED, Ui.REGULAR);
+        tip.setLineSpacing(0, 1.2f);
+        tip.setPadding(Ui.dp(a, 4), Ui.dp(a, 10), 0, 0);
+        col.addView(tip);
     }
 
     // ---------- Gestos ----------
@@ -265,9 +366,9 @@ final class Studio {
             col.addView(gap, new LinearLayout.LayoutParams(1, Ui.dp(a, 10)));
             col.addView(Ctl.action(a, Widgets.LOCK, "Activar bloqueo con doble toque", "Permiso", v -> h.requestLock()));
         }
-        col.addView(Ctl.section(a, "Mantener presionado el fondo"));
-        col.addView(Ctl.chips(a, new String[]{"Personalizar", "Fondos", "Nada"}, Prefs.gLong(a), v -> Prefs.setGLong(a, v)));
-        TextView tip = Ui.text(a, "Aunque elijas «Nada», siempre puedes llegar aquí manteniendo presionado el reloj.", 12, Ui.MUTED, Ui.REGULAR);
+        col.addView(Ctl.section(a, "Mantener presionado un espacio vacío"));
+        col.addView(Ctl.chips(a, new String[]{"Menú", "Editar inicio", "Personalizar", "Nada"}, Prefs.gLong(a), v -> Prefs.setGLong(a, v)));
+        TextView tip = Ui.text(a, "Aunque elijas «Nada», puedes llegar aquí con el engrane del panel que baja desde arriba.", 12, Ui.MUTED, Ui.REGULAR);
         tip.setLineSpacing(0, 1.2f);
         tip.setPadding(Ui.dp(a, 4), Ui.dp(a, 12), 0, 0);
         col.addView(tip);
@@ -283,6 +384,15 @@ final class Studio {
             if (done) Sound.play(col, Sound.TAP);
         }));
         col.addView(Ctl.toggle(a, "Vibración", null, Prefs.haptics(a), v -> Prefs.setHaptics(a, v)));
+        col.addView(Ctl.section(a, "Animaciones"));
+        col.addView(Ctl.chips(a, new String[]{"Normales", "Rápidas", "Reducidas", "Apagadas"}, Prefs.motion(a), v -> {
+            Prefs.setMotion(a, v);
+            h.applyHome();
+        }));
+        TextView mt = Ui.text(a, "«Reducidas» quita los giros y acercamientos para quien se marea con el movimiento. Si en Android activas «Quitar animaciones», también se respeta.", 12, Ui.MUTED, Ui.REGULAR);
+        mt.setLineSpacing(0, 1.2f);
+        mt.setPadding(Ui.dp(a, 4), Ui.dp(a, 10), 0, 0);
+        col.addView(mt);
         col.addView(Ctl.section(a, "Batería"));
         col.addView(Ctl.toggle(a, "Ahorro automático", "Si activas el ahorro de batería del teléfono, se apagan animaciones, partículas e inclinación.",
                 Prefs.autoEco(a), v -> {

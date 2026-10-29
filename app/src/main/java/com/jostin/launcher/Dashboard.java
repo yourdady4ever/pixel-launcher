@@ -95,13 +95,16 @@ class Dashboard extends FrameLayout implements Media.Listener {
         col.setPadding(side, Ui.dp(a, 56), side, Ui.dp(a, 40));
         sv.addView(col);
         addView(sv, new LayoutParams(-1, -1));
-        View handle = new View(a);
-        handle.setBackground(Ui.fill(a, 0x59FFFFFF, 3));
-        LayoutParams hl = new LayoutParams(Ui.dp(a, 44), Ui.dp(a, 5), Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
-        hl.bottomMargin = Ui.dp(a, 54);
-        addView(handle, hl);
+        // Franja oscura bajo la barra de estado para que lo que se desplaza no choque con la hora y los íconos
+        View scrim = new View(a);
+        android.graphics.drawable.GradientDrawable sg = new android.graphics.drawable.GradientDrawable(
+                android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM, new int[]{0xE60B0C0F, 0x000B0C0F});
+        scrim.setBackground(sg);
+        addView(scrim, new LayoutParams(-1, Ui.dp(a, 48), Gravity.TOP));
         setOnApplyWindowInsetsListener((v, in) -> {
             col.setPadding(side, in.getSystemWindowInsetTop() + Ui.dp(a, 16), side, in.getSystemWindowInsetBottom() + Ui.dp(a, 30));
+            scrim.getLayoutParams().height = in.getSystemWindowInsetTop() + Ui.dp(a, 18);
+            scrim.requestLayout();
             return in;
         });
         build();
@@ -490,13 +493,41 @@ class Dashboard extends FrameLayout implements Media.Listener {
         Activity a = act;
         notes.removeAllViews();
         if (!Media.hasAccess(a)) return;
-        List<Media.Note> list = Media.recent(a, 5);
+        List<Media.Note> list = Media.recent(a, 14);
+        LinearLayout head = new LinearLayout(a);
+        head.setGravity(Gravity.CENTER_VERTICAL);
         TextView h = Ui.label(a, list.isEmpty() ? "Sin notificaciones" : "Notificaciones");
-        h.setPadding(Ui.dp(a, 6), Ui.dp(a, 10), 0, Ui.dp(a, 8));
-        notes.addView(h);
+        head.addView(h, new LinearLayout.LayoutParams(0, -2, 1f));
+        boolean anyClear = false;
+        for (Media.Note n : list) if (n.clearable) anyClear = true;
+        if (anyClear) {
+            TextView all = Ui.text(a, "Borrar todo", 13, Ui.TEXT, Ui.SEMIBOLD);
+            int ph = Ui.dp(a, 14), pv = Ui.dp(a, 8);
+            all.setPadding(ph, pv, ph, pv);
+            all.setBackground(Ui.fill(a, 0x1FFFFFFF, 16));
+            Ui.pressable(all, 0.94f);
+            all.setOnClickListener(v -> {
+                Sound.play(v, Sound.BACK);
+                // Se van una por una con animación; Android quita las que se pueden quitar
+                int k = 0;
+                for (int i = 1; i < notes.getChildCount(); i++) {
+                    View row = notes.getChildAt(i);
+                    if (!(row.getTag() instanceof Media.Note) || !((Media.Note) row.getTag()).clearable) continue;
+                    row.animate().translationX(row.getWidth()).alpha(0f).setStartDelay(k++ * 45L).setDuration(220).start();
+                }
+                handler.postDelayed(() -> {
+                    if (!NotifService.cancelAll()) Sheet.pill(a, backdrop, "Android no dejó borrarlas");
+                    buildNotes();
+                }, 260 + k * 45L);
+            });
+            head.addView(all);
+        }
+        head.setPadding(Ui.dp(a, 6), Ui.dp(a, 10), 0, Ui.dp(a, 8));
+        notes.addView(head, new LinearLayout.LayoutParams(-1, -2));
         PackageManager pm = a.getPackageManager();
         for (Media.Note n : list) {
             LinearLayout row = new LinearLayout(a);
+            row.setTag(n);
             row.setGravity(Gravity.CENTER_VERTICAL);
             int p = Ui.dp(a, 12);
             row.setPadding(p, p, Ui.dp(a, 16), p);
@@ -518,16 +549,16 @@ class Dashboard extends FrameLayout implements Media.Listener {
             top.addView(Ui.text(a, DateUtils.getRelativeTimeSpanString(n.time, System.currentTimeMillis(),
                     DateUtils.MINUTE_IN_MILLIS, DateUtils.FORMAT_ABBREV_RELATIVE).toString(), 11, Ui.MUTED, Ui.REGULAR));
             tx.addView(top);
-            TextView s = Ui.text(a, n.text, 13, Ui.MUTED, Ui.REGULAR);
+            boolean hide = Prefs.notesPrivate(a);
+            TextView s = Ui.text(a, hide ? "Contenido oculto" : n.text, 13, Ui.MUTED, Ui.REGULAR);
             s.setMaxLines(2);
             s.setEllipsize(android.text.TextUtils.TruncateAt.END);
             LinearLayout.LayoutParams sl = new LinearLayout.LayoutParams(-1, -2);
             sl.topMargin = Ui.dp(a, 3);
-            tx.addView(s, sl);
+            if (!n.text.isEmpty()) tx.addView(s, sl);
             LinearLayout.LayoutParams txl = new LinearLayout.LayoutParams(0, -2, 1f);
             txl.leftMargin = Ui.dp(a, 12);
             row.addView(tx, txl);
-            Ui.pressable(row, 0.97f);
             row.setOnClickListener(v -> {
                 Sound.play(v, Sound.OPEN);
                 try {
@@ -536,11 +567,25 @@ class Dashboard extends FrameLayout implements Media.Listener {
                 } catch (Exception e) {
                     MainActivity.launch(a, n.pkg, v);
                 }
+                if (n.autoCancel && n.clearable) NotifService.cancel(n.key);
                 host.closeDashboard();
             });
+            if (n.clearable) {
+                // Deslizar a un lado la descarta, como en la barra de Android
+                SwipeDismiss.attach(row, () -> {
+                    if (!NotifService.cancel(n.key)) Sheet.pill(a, backdrop, "Android no dejó quitar esa notificación");
+                });
+            } else {
+                Ui.pressable(row, 0.97f);
+            }
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
             lp.topMargin = Ui.dp(a, 6);
             notes.addView(row, lp);
+        }
+        if (!list.isEmpty()) {
+            TextView tip = Ui.text(a, "Desliza una notificación a un lado para quitarla.", 12, Ui.MUTED, Ui.REGULAR);
+            tip.setPadding(Ui.dp(a, 6), Ui.dp(a, 10), 0, 0);
+            notes.addView(tip);
         }
     }
 

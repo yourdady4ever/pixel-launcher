@@ -99,7 +99,7 @@ class Drawer extends FrameLayout {
             int style = Prefs.iconStyle(app);
             Map<String, Drawable> pre = new HashMap<>();
             for (App x : out) {
-                Drawable d = Icons.app(app, x.pkg, style);
+                Drawable d = IconEngine.icon(app, x.pkg);
                 if (d != null) pre.put(x.pkg, d);
             }
             main.post(() -> {
@@ -123,7 +123,7 @@ class Drawer extends FrameLayout {
         }
         Drawable d = iconCache.get(pkg);
         if (d == null) {
-            d = Icons.app(c, pkg, style);
+            d = IconEngine.icon(c, pkg);
             if (d != null) iconCache.put(pkg, d);
         }
         return d;
@@ -334,6 +334,7 @@ class Drawer extends FrameLayout {
             return;
         }
         Sound.play(from != null ? from : this, Sound.OPEN);
+        Prefs.countLaunch(act, x.pkg);
         MainActivity.launch(act, x.pkg, from);
         postDelayed(host::closeDrawer, 350);
     }
@@ -456,6 +457,7 @@ class Drawer extends FrameLayout {
             App x = shown.get(i);
             label.setText(x.label);
             icon.setImageDrawable(icon(act, x.pkg));
+            IconEngine.clip(icon, x.pkg);
             return cell;
         }
     }

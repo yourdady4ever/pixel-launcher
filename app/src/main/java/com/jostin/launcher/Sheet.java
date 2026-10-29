@@ -42,6 +42,7 @@ final class Sheet {
         Value value;
         boolean keepOpen;
         boolean danger;
+        android.graphics.drawable.Drawable drawable;
 
         Item(String label, Icons.Shape icon, Runnable action) {
             this.label = label;
@@ -59,6 +60,12 @@ final class Sheet {
             danger = true;
             return this;
         }
+
+        /** Usa una imagen (el ícono de una app, por ejemplo) en lugar del ícono de línea. */
+        Item drawable(android.graphics.drawable.Drawable d) {
+            drawable = d;
+            return this;
+        }
     }
 
     private Sheet() {}
@@ -74,13 +81,27 @@ final class Sheet {
     }
 
     static void show(Activity a, Backdrop b, String title, List<Item> items) {
+        show(a, b, title, null, items);
+    }
+
+    /** Lista de opciones; si son muchas se puede desplazar. header va arriba de la lista (puede ser null). */
+    static void show(Activity a, Backdrop b, String title, View header, List<Item> items) {
         LinearLayout card = card(a, b, title);
+        if (header != null) card.addView(header, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout list = new LinearLayout(a);
+        list.setOrientation(LinearLayout.VERTICAL);
         for (Item it : items) {
             LinearLayout row = new LinearLayout(a);
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setGravity(Gravity.CENTER_VERTICAL);
             row.setPadding(Ui.dp(a, 10), 0, Ui.dp(a, 14), 0);
-            if (it.icon != null) {
+            if (it.drawable != null) {
+                ImageView ic = new ImageView(a);
+                ic.setImageDrawable(it.drawable);
+                int p = Ui.dp(a, 3);
+                ic.setPadding(p, p, p, p);
+                row.addView(ic, new LinearLayout.LayoutParams(Ui.dp(a, 38), Ui.dp(a, 38)));
+            } else if (it.icon != null) {
                 ImageView ic = new ImageView(a);
                 Icons.Line d = Icons.of(it.icon);
                 if (it.danger) d.setColor(DANGER);
@@ -94,7 +115,7 @@ final class Sheet {
             label.setMaxLines(1);
             label.setEllipsize(android.text.TextUtils.TruncateAt.END);
             LinearLayout.LayoutParams llp = new LinearLayout.LayoutParams(0, -2, 1f);
-            llp.leftMargin = Ui.dp(a, it.icon != null ? 14 : 4);
+            llp.leftMargin = Ui.dp(a, it.icon != null || it.drawable != null ? 14 : 4);
             row.addView(label, llp);
             TextView value = Ui.text(a, it.value != null ? it.value.get() : "", 14, Ui.MUTED, Ui.REGULAR);
             row.addView(value);
@@ -108,8 +129,19 @@ final class Sheet {
                     dismiss(a, it.action);
                 }
             });
-            card.addView(row, new LinearLayout.LayoutParams(-1, Ui.dp(a, 58)));
+            list.addView(row, new LinearLayout.LayoutParams(-1, Ui.dp(a, 58)));
         }
+        ScrollView sv = new ScrollView(a) {
+            @Override
+            protected void onMeasure(int w, int h) {
+                int max = (int) (a.getResources().getDisplayMetrics().heightPixels * 0.62f);
+                super.onMeasure(w, View.MeasureSpec.makeMeasureSpec(max, View.MeasureSpec.AT_MOST));
+            }
+        };
+        sv.setVerticalScrollBarEnabled(false);
+        sv.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        sv.addView(list);
+        card.addView(sv, new LinearLayout.LayoutParams(-1, -2));
         present(a, card, 0x80000000);
     }
 
@@ -169,6 +201,11 @@ final class Sheet {
 
     /** Pide un texto (tu ciudad, un saludo...). */
     static void prompt(Activity a, Backdrop b, String title, String hint, String initial, TextDone done) {
+        prompt(a, b, title, hint, initial, false, done);
+    }
+
+    /** Igual, pero puede ser de varias líneas (para notas). */
+    static void prompt(Activity a, Backdrop b, String title, String hint, String initial, boolean multi, TextDone done) {
         LinearLayout card = card(a, b, null);
         int side = Ui.dp(a, 10);
         TextView t = Ui.text(a, title, 19, Ui.TEXT, Ui.SEMIBOLD);
@@ -182,8 +219,17 @@ final class Sheet {
         e.setTextColor(Ui.TEXT);
         e.setTextSize(17);
         e.setTypeface(Ui.REGULAR);
-        e.setSingleLine(true);
-        e.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        if (multi) {
+            e.setSingleLine(false);
+            e.setMinLines(3);
+            e.setMaxLines(7);
+            e.setGravity(Gravity.TOP | Gravity.START);
+            e.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                    | android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        } else {
+            e.setSingleLine(true);
+            e.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        }
         int p = Ui.dp(a, 16);
         e.setPadding(p, p, p, p);
         e.setBackground(Ui.outline(a, Ui.SOFT, 0x33FFFFFF, 16));
@@ -201,7 +247,7 @@ final class Sheet {
             Sound.play(v, Sound.TAP);
             save.run();
         });
-        e.setOnEditorActionListener((v, act, ev) -> {
+        if (!multi) e.setOnEditorActionListener((v, act, ev) -> {
             save.run();
             return true;
         });

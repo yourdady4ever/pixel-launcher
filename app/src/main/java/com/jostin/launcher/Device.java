@@ -56,6 +56,11 @@ final class Device {
     private static String torchId;
     private static CameraManager.TorchCallback torchCb;
 
+    /** Si la linterna está prendida (según lo último que avisó Android). */
+    static boolean torchOn() {
+        return torchOn;
+    }
+
     static boolean toggleTorch(Context c) {
         CameraManager cm = (CameraManager) c.getSystemService(Context.CAMERA_SERVICE);
         if (cm == null) return false;

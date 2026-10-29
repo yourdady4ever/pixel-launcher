@@ -25,6 +25,8 @@ class ClockView extends LinearLayout {
     private TextView weatherText;
     private TextView studyChip;
     private int style = -1, align = -1, font = -1;
+    /** Espacio que le dan (cuando vive dentro de un widget). 0 = ancho de la pantalla. */
+    private int availW = 0, availH = 0;
 
     ClockView(Context c, Backdrop b) {
         super(c);
@@ -47,7 +49,7 @@ class ClockView extends LinearLayout {
         int g = a == 1 ? Gravity.START : Gravity.CENTER_HORIZONTAL;
         setGravity(g);
         Typeface tf = Ui.clockFont(f);
-        int width = getResources().getDisplayMetrics().widthPixels - Ui.dp(c, 40);
+        int width = availW > 0 ? availW : getResources().getDisplayMetrics().widthPixels - Ui.dp(c, 40);
 
         if (s == 0) {
             day = Ui.text(c, "", 34, Ui.TEXT, tf);
@@ -176,6 +178,43 @@ class ClockView extends LinearLayout {
         } else {
             weatherRow.setVisibility(GONE);
         }
+        fit();
+    }
+
+    /** Le dice al reloj cuánto espacio tiene; se rehace y se escala para caber completo. */
+    void setAvail(int w, int h) {
+        if (w <= 0 || h <= 0) return;
+        if (w == availW && h == availH && style != -1) {
+            fit();
+            return;
+        }
+        availW = w;
+        availH = h;
+        style = -1;
+        rebuild();
+    }
+
+    /** Si el reloj no cabe en su widget, se reduce parejo (nunca se corta). */
+    private void fit() {
+        if (availW <= 0 || availH <= 0) return;
+        int u = MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED);
+        measure(u, u);
+        float mw = Math.max(1, getMeasuredWidth()), mh = Math.max(1, getMeasuredHeight());
+        float s = Math.min(1f, Math.min(availW / mw, availH / mh));
+        setPivotX(align == 1 ? 0 : mw / 2f);
+        setPivotY(mh / 2f);
+        setScaleX(s);
+        setScaleY(s);
+    }
+
+    @Override
+    protected void onMeasure(int ws, int hs) {
+        if (availW > 0) {
+            int u = MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED);
+            super.onMeasure(u, u);
+        } else {
+            super.onMeasure(ws, hs);
+        }
     }
 
     void setStudy(String text) {
@@ -185,6 +224,7 @@ class ClockView extends LinearLayout {
             studyChip.setText(text);
             studyChip.setTextColor(Ui.TEXT);
         }
+        fit();
     }
 
     private static String cap(String s) {
