@@ -424,7 +424,7 @@ final class Studio {
         mt.setPadding(Ui.dp(a, 4), Ui.dp(a, 10), 0, 0);
         col.addView(mt);
         col.addView(Ctl.section(a, "Batería"));
-        col.addView(Ctl.toggle(a, "Ahorro automático", "Si activas el ahorro de batería del teléfono, se apagan animaciones, partículas e inclinación.",
+        col.addView(Ctl.toggle(a, "Ahorro automático", "Con el ahorro de batería del teléfono, o con 20% o menos sin cargar, se apagan animaciones, partículas e inclinación.",
                 Prefs.autoEco(a), v -> {
                     Prefs.setAutoEco(a, v);
                     h.applyWallpaper();

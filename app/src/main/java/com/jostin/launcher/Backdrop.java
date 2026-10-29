@@ -14,6 +14,7 @@ import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
+import android.os.BatteryManager;
 import android.os.PowerManager;
 import android.view.View;
 
@@ -63,6 +64,8 @@ class Backdrop extends View implements SensorEventListener {
     private final BroadcastReceiver powerReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context c, Intent i) {
+            // La batería avisa a cada rato (voltaje, temperatura); solo se rehace si cambia el ahorro
+            if (Intent.ACTION_BATTERY_CHANGED.equals(i.getAction()) && wantsEco(i) == eco) return;
             updateEco();
         }
     };
@@ -202,7 +205,9 @@ class Backdrop extends View implements SensorEventListener {
         Context c = getContext();
         if (on) {
             try {
-                c.registerReceiver(powerReceiver, new IntentFilter(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED));
+                IntentFilter f = new IntentFilter(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED);
+                f.addAction(Intent.ACTION_BATTERY_CHANGED);
+                c.registerReceiver(powerReceiver, f);
             } catch (Exception ignored) {
                 // nada
             }
@@ -219,10 +224,29 @@ class Backdrop extends View implements SensorEventListener {
     }
 
     private void updateEco() {
-        PowerManager pm = (PowerManager) getContext().getSystemService(Context.POWER_SERVICE);
-        eco = Prefs.autoEco(getContext()) && pm != null && pm.isPowerSaveMode();
+        eco = wantsEco(null);
         updateSensor();
         kick();
+    }
+
+    /** Con el ahorro de batería prendido, o con 20% o menos sin cargar. */
+    private boolean wantsEco(Intent battery) {
+        Context c = getContext();
+        if (!Prefs.autoEco(c)) return false;
+        PowerManager pm = (PowerManager) c.getSystemService(Context.POWER_SERVICE);
+        if (pm != null && pm.isPowerSaveMode()) return true;
+        if (battery == null) {
+            try {
+                battery = c.registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+            } catch (Exception e) {
+                return false;
+            }
+        }
+        if (battery == null) return false;
+        int level = battery.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
+        int scale = battery.getIntExtra(BatteryManager.EXTRA_SCALE, 100);
+        boolean plugged = battery.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0;
+        return !plugged && level >= 0 && level * 100 <= 20 * scale;
     }
 
     private boolean animOn() {

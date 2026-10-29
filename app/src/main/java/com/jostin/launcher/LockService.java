@@ -7,6 +7,9 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.graphics.PixelFormat;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.SystemClock;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
@@ -24,6 +27,38 @@ public class LockService extends AccessibilityService {
     private View strip;
     private float downY, downX;
     private boolean fired;
+
+    // La franja queda encima de los avisos emergentes de Android y se comía el toque en su parte de
+    // arriba; mientras se ven, se quita. Una llamada entrante la quita hasta que contestas o cuelgas.
+    private static final long PEEK_MS = 6000;
+    private static final Handler main = new Handler(Looper.getMainLooper());
+    private static long hiddenUntil = 0;
+    private static String callKey = null;
+    private static final Runnable back = () -> {
+        LockService s = instance;
+        if (s != null) s.refreshEdge();
+    };
+
+    /** NotifService avisa que va a salir un aviso emergente arriba. */
+    static void peek(String key, boolean incomingCall) {
+        if (incomingCall) callKey = key;
+        hiddenUntil = SystemClock.uptimeMillis() + PEEK_MS;
+        // Se quita ya y se revisa de nuevo cuando el aviso normal ya se fue
+        main.removeCallbacks(back);
+        main.post(back);
+        main.postDelayed(back, PEEK_MS + 100);
+    }
+
+    /** El aviso se quitó, o la llamada ya se contestó o colgó. */
+    static void peekGone(String key) {
+        if (key == null || !key.equals(callKey)) return;
+        callKey = null;
+        main.post(back);
+    }
+
+    private static boolean peeking() {
+        return callKey != null || SystemClock.uptimeMillis() < hiddenUntil;
+    }
 
     private final BroadcastReceiver screen = new BroadcastReceiver() {
         @Override
@@ -84,7 +119,7 @@ public class LockService extends AccessibilityService {
         KeyguardManager km = (KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
         boolean locked = km != null && km.isKeyguardLocked();
         // En la pantalla de bloqueo nunca: ahí la barra de Android se queda como está
-        if (Prefs.edgeShade(this) && !locked) addStrip();
+        if (Prefs.edgeShade(this) && !locked && !peeking()) addStrip();
         else removeStrip();
     }
 
