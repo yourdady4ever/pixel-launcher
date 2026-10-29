@@ -32,7 +32,7 @@ final class Studio {
         void chooseIconPack();
     }
 
-    static final String[] TABS = {"Temas", "Fondo", "Color", "Inicio", "Íconos", "Dock", "Reloj", "Gestos", "Avisos", "Sonido"};
+    static final String[] TABS = {"Temas", "Fondo", "Color", "Inicio", "Íconos", "Dock", "Reloj", "Gestos", "Avisos", "Android", "Sonido"};
     static final int TAB_THEMES = 0, TAB_WALL = 1, TAB_HOME = 3, TAB_ICONS = 4, TAB_DOCK = 5;
     static WallStrip strip;
     private static int lastTab = 0;
@@ -79,6 +79,7 @@ final class Studio {
             case 6: clock(a, h, col); break;
             case 7: gestures(a, h, col); break;
             case 8: notices(a, h, col); break;
+            case 9: AndroidStudio.fill(a, h, col); break;
             default: sound(a, h, col); break;
         }
         body.addView(col, new FrameLayout.LayoutParams(-1, -2));

@@ -81,6 +81,24 @@ start --es shot tema --ei tab 1; snap 21b_tema_medianoche 7
 back
 start --es shot tema_undo; sleep 4
 
+# Android sin root: colores, botones en ajustes rápidos y panel desde la orilla
+start --es shot studio --ei tab 9; snap 21c_estudio_android 4
+back
+adb shell pm grant $PKG android.permission.WRITE_SECURE_SETTINGS || true
+adb shell settings put secure enabled_accessibility_services $PKG/$PKG.LockService || true
+adb shell settings put secure accessibility_enabled 1 || true
+start --ez demo_android_colors true --ez demo_edge true --ei theme 4; sleep 4
+adb shell cmd statusbar add-tile $PKG/$PKG.QsTiles\\\$Study || true
+adb shell cmd statusbar add-tile $PKG/$PKG.QsTiles\\\$Panel || true
+adb shell input keyevent KEYCODE_HOME; sleep 1
+adb shell am start -a android.settings.SETTINGS; sleep 8
+adb shell settings get secure theme_customization_overlay_packages > "$OUT/colores_android.txt" || true
+adb shell cmd statusbar expand-settings; snap 21d_ajustes_rapidos 4
+adb shell cmd statusbar collapse; sleep 1
+adb shell input swipe 800 8 800 900 300; snap 21e_panel_orilla 4
+back
+start --ez demo_edge false; sleep 2
+
 # Fondo del sistema: recientes y pantalla de bloqueo deben verse con el fondo de Jostin OS
 start --ei theme 5; sleep 6
 adb shell input keyevent KEYCODE_APP_SWITCH; snap 22_recientes 3

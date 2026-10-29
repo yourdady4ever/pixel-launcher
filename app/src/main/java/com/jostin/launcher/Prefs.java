@@ -221,6 +221,17 @@ final class Prefs {
     static boolean notesInPanel(Context c) { return b(c, "notes_panel", true); }
     static void setNotesInPanel(Context c, boolean on) { put(c, "notes_panel", on); }
 
+    // ---------- Android ----------
+    static boolean androidColors(Context c) { return b(c, "android_colors", false); }
+    static void setAndroidColors(Context c, boolean on) { put(c, "android_colors", on); }
+    static int androidStyle(Context c) { return i(c, "android_style", 0); }
+    static void setAndroidStyle(Context c, int v) { put(c, "android_style", v); }
+    static boolean edgeShade(Context c) { return b(c, "edge_shade", false); }
+    static void setEdgeShade(Context c, boolean on) { put(c, "edge_shade", on); }
+    /** 0 toda la orilla, 1 mitad derecha, 2 mitad izquierda (la otra mitad sigue siendo de Android). */
+    static int edgeZone(Context c) { return i(c, "edge_zone", 1); }
+    static void setEdgeZone(Context c, int v) { put(c, "edge_zone", v); }
+
     // ---------- Animaciones ----------
     /** 0 normal, 1 rápidas, 2 reducidas (casi sin movimiento), 3 apagadas. */
     static int motion(Context c) { return i(c, "motion", 0); }

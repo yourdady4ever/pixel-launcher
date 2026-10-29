@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="lock_label">Jostin OS: bloquear con doble toque</string>
-    <string name="lock_desc">Permite que Jostin OS bloquee la pantalla cuando das doble toque en el fondo de inicio. No lee ni guarda nada de lo que hay en tu pantalla.</string>
+    <string name="lock_label">Jostin OS: doble toque y panel</string>
+    <string name="lock_desc">Permite que Jostin OS bloquee la pantalla cuando das doble toque en el fondo de inicio y, si lo activas en Personalizar, que abra su panel al deslizar desde la orilla de arriba. No lee ni guarda nada de lo que hay en tu pantalla.</string>
     <string name="notif_label">Jostin OS: música y avisos</string>
     <string name="dream_label">Reloj de Jostin OS</string>
 </resources>

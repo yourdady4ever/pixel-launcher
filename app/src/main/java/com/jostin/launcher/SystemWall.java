@@ -66,9 +66,15 @@ final class SystemWall {
 
     private static void run(Context c) {
         pending = null;
-        if (!Prefs.syncSystem(c)) return;
+        if (!Prefs.syncSystem(c)) {
+            SystemColors.apply(c);
+            return;
+        }
         String key = key(c);
-        if (key.equals(Prefs.syncedKey(c))) return;
+        if (key.equals(Prefs.syncedKey(c))) {
+            SystemColors.apply(c);
+            return;
+        }
         if (Prefs.wallKind(c) == 1 && Prefs.wallPhoto(c) != null && Wallpaper.file(c, Prefs.wallPhoto(c)).exists()) {
             Wallpaper.load(c, Prefs.wallPhoto(c), Prefs.wallEffect(c), l -> {
                 if (l == null) return;
@@ -97,6 +103,8 @@ final class SystemWall {
             int which = WallpaperManager.FLAG_SYSTEM | (Prefs.syncLock(c) ? WallpaperManager.FLAG_LOCK : 0);
             WallpaperManager.getInstance(c).setBitmap(out, null, true, which);
             Prefs.setSyncedKey(c, key);
+            // Después de que Android saque los colores del fondo nuevo, se ponen los de Jostin (si los pediste)
+            main.postDelayed(() -> SystemColors.reapply(c), 2500);
         } catch (Throwable ignored) {
             // Si el sistema no lo permite, Jostin OS sigue funcionando igual
         } finally {

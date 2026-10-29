@@ -118,6 +118,7 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
         Sound.init(this);
         Theme.recompute(this);
         recovered = Safety.onCreate(this);
+        current = new java.lang.ref.WeakReference<>(this);
         int savedPage = 0;
         if (saved != null) {
             pendingWidget = saved.getInt("pending_widget", -1);
@@ -416,6 +417,7 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
             if (Prefs.iconStyle(this) == 2) Drawer.trim();
             refreshDock();
             home.rebuildAll();
+            if (SystemColors.enabled(this)) SystemWall.sync(this);
         }
         dashboard.invalidate();
         backdrop.invalidateGlass();
@@ -800,22 +802,30 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
     }
 
     private void nextWallpaper() {
-        List<String> photos = Wallpaper.photos(this);
-        int total = photos.size() + Scenes.COUNT;
-        int cur;
-        if (Prefs.wallKind(this) == 1 && photos.contains(Prefs.wallPhoto(this))) cur = photos.indexOf(Prefs.wallPhoto(this));
-        else cur = photos.size() + Prefs.wallScene(this);
-        int next = (cur + 1) % total;
-        if (next < photos.size()) {
-            Prefs.setWallKind(this, 1);
-            Prefs.setWallPhoto(this, photos.get(next));
-        } else {
-            Prefs.setWallKind(this, 0);
-            Prefs.setWallScene(this, next - photos.size());
-        }
+        cycleWallpaper(this);
         Sound.play(content, Sound.THEME);
         applyWallpaper();
     }
+
+    /** Pasa al siguiente fondo (tus fotos y luego las escenas). También lo usa el botón de ajustes rápidos. */
+    static void cycleWallpaper(Context c) {
+        List<String> photos = Wallpaper.photos(c);
+        int total = photos.size() + Scenes.COUNT;
+        int cur;
+        if (Prefs.wallKind(c) == 1 && photos.contains(Prefs.wallPhoto(c))) cur = photos.indexOf(Prefs.wallPhoto(c));
+        else cur = photos.size() + Prefs.wallScene(c);
+        int next = (cur + 1) % total;
+        if (next < photos.size()) {
+            Prefs.setWallKind(c, 1);
+            Prefs.setWallPhoto(c, photos.get(next));
+        } else {
+            Prefs.setWallKind(c, 0);
+            Prefs.setWallScene(c, next - photos.size());
+        }
+    }
+
+    /** La pantalla de inicio que está abierta (para que los botones de Android la actualicen). */
+    static java.lang.ref.WeakReference<MainActivity> current = new java.lang.ref.WeakReference<>(null);
 
     // ==================== Lo que piden los widgets ====================
 
@@ -938,52 +948,12 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
     }
 
     private void startSafe(Intent i, String fail) {
-        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        try {
-            startActivity(i);
-        } catch (Exception e) {
-            if (fail != null) Sheet.pill(this, backdrop, fail);
-        }
+        Controls.start(this, backdrop, i, fail);
     }
 
     /** 0 linterna, 1 internet, 2 volumen, 3 no molestar. Siempre dice lo que de verdad pasó. */
     void toggle(int k) {
-        switch (k) {
-            case 0: {
-                boolean on = Device.toggleTorch(this);
-                Sound.play(content, Sound.TOGGLE);
-                Sheet.pill(this, backdrop, on ? "Linterna encendida" : "Linterna apagada");
-                break;
-            }
-            case 1:
-                if (Build.VERSION.SDK_INT >= 29) startSafe(new Intent(Settings.Panel.ACTION_INTERNET_CONNECTIVITY), null);
-                else startSafe(new Intent(Settings.ACTION_WIFI_SETTINGS), null);
-                break;
-            case 2:
-                if (Build.VERSION.SDK_INT >= 29) {
-                    startSafe(new Intent(Settings.Panel.ACTION_VOLUME), null);
-                } else {
-                    AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
-                    if (am != null) am.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_SAME, AudioManager.FLAG_SHOW_UI);
-                }
-                break;
-            default: {
-                NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-                if (nm == null || !nm.isNotificationPolicyAccessGranted()) {
-                    Sheet.confirm(this, backdrop, "No molestar",
-                            "Para prenderlo desde aquí, Android pide que Jostin OS tenga acceso a «No molestar». Si ya le diste permiso de notificaciones, normalmente ya lo tiene.",
-                            "Abrir ajustes", false, () -> startSafe(new Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS), null));
-                    return;
-                }
-                boolean want = !NotifService.dndOn(this);
-                if (!NotifService.setDnd(this, want)) {
-                    Sheet.pill(this, backdrop, "Android no dejó cambiar «No molestar»");
-                    return;
-                }
-                handler.postDelayed(() -> Sheet.pill(this, backdrop, NotifService.dndOn(this) ? "No molestar activado" : "No molestar desactivado"), 300);
-                break;
-            }
-        }
+        Controls.toggle(this, backdrop, k);
     }
 
     void voiceSearch() {
@@ -1880,6 +1850,21 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
         } else if (any) {
             applyWallpaper();
         }
+        if (i.hasExtra("demo_android_colors")) {
+            Prefs.setAndroidColors(this, i.getBooleanExtra("demo_android_colors", false));
+            Prefs.setAndroidStyle(this, 1);
+            SystemWall.sync(this);
+            any = true;
+        }
+        if (i.hasExtra("demo_edge")) {
+            Prefs.setEdgeShade(this, i.getBooleanExtra("demo_edge", false));
+            LockService.updateEdge();
+            any = true;
+        }
+        if (i.getBooleanExtra("jostin_studio", false)) {
+            handler.postDelayed(() -> Studio.show(this, this, -1), 500);
+            any = true;
+        }
         String shot = i.getStringExtra("shot");
         if (shot != null) {
             any = true;
@@ -1898,7 +1883,7 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
         }
         // Que no se repitan si la actividad se recrea
         for (String k : new String[]{"demo_reset", "theme", "demo_effect", "demo_overlay", "demo_clock", "demo_city", "demo_photo",
-                "demo_free", "shot", "open", "arg"}) i.removeExtra(k);
+                "demo_free", "shot", "open", "arg", "jostin_studio", "demo_android_colors", "demo_edge"}) i.removeExtra(k);
         return any;
     }
 
