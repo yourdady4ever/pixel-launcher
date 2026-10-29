@@ -333,7 +333,7 @@ final class Scenes {
         private final Path ribbon = new Path();
         private final Path hills = new Path();
         private LinearGradient sky;
-        private final LinearGradient[] glows = new LinearGradient[3];
+        private final Shader[] shaders = new Shader[3];
         private final int[] colors = {0xFF4DF2C3, 0xFF7CE0A3, 0xFF8C6BFF};
         private float[] stars;
         private final Paint star = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -351,11 +351,29 @@ final class Scenes {
         @Override
         void prepare() {
             sky = new LinearGradient(0, 0, 0, h, new int[]{0xFF01030A, 0xFF04101A, 0xFF0A1E26}, null, Shader.TileMode.CLAMP);
+            // Estrías verticales (rayos de la aurora): un mosaico de 1 px de alto que se repite
+            Random sr = new Random(13);
+            int sw = 512;
+            int[] sp = new int[sw];
+            float p1 = sr.nextFloat() * 6, p2 = sr.nextFloat() * 6, p3 = sr.nextFloat() * 6;
+            for (int k = 0; k < sw; k++) {
+                double x = k / (double) sw * Math.PI * 2;
+                double v = 0.62 + 0.18 * Math.sin(x * 7 + p1) + 0.12 * Math.sin(x * 23 + p2) + 0.08 * Math.sin(x * 61 + p3);
+                int a = (int) (255 * Math.max(0.15, Math.min(1.0, v)));
+                sp[k] = (a << 24) | 0xFFFFFF;
+            }
+            Bitmap stripes = Bitmap.createBitmap(sp, sw, 1, Bitmap.Config.ARGB_8888);
             for (int i = 0; i < 3; i++) {
                 float base = h * (0.3f + 0.07f * i);
-                glows[i] = new LinearGradient(0, base - h * 0.26f, 0, base + h * 0.03f,
-                        new int[]{0x00000000, Ui.alpha(colors[i], 0x30), Ui.alpha(colors[i], 0x8C), 0x00000000},
-                        new float[]{0f, 0.55f, 0.9f, 1f}, Shader.TileMode.CLAMP);
+                LinearGradient lg = new LinearGradient(0, base - h * 0.24f, 0, base + h * 0.03f,
+                        new int[]{0x00000000, Ui.alpha(colors[i], 0x38), Ui.alpha(colors[i], 0xA6), 0x00000000},
+                        new float[]{0f, 0.5f, 0.88f, 1f}, Shader.TileMode.CLAMP);
+                android.graphics.BitmapShader bs = new android.graphics.BitmapShader(stripes, Shader.TileMode.REPEAT, Shader.TileMode.CLAMP);
+                Matrix sm = new Matrix();
+                sm.setScale(w / (float) sw * (1.1f + i * 0.35f), 1f);
+                sm.postTranslate(i * w * 0.21f, 0);
+                bs.setLocalMatrix(sm);
+                shaders[i] = new android.graphics.ComposeShader(lg, bs, PorterDuff.Mode.DST_IN);
             }
             Random r = new Random(9);
             int n = 110;
@@ -390,7 +408,7 @@ final class Scenes {
             for (int i = 0; i < 3; i++) {
                 float base = h * (0.3f + 0.07f * i);
                 ribbon.reset();
-                int steps = 36;
+                int steps = 48;
                 for (int s = 0; s <= steps; s++) {
                     float x = w * s / (float) steps;
                     float y = base + h * 0.035f * (float) Math.sin(x / w * 5.2f + t * (0.16f + i * 0.05f) + i * 2)
@@ -399,12 +417,13 @@ final class Scenes {
                 }
                 for (int s = steps; s >= 0; s--) {
                     float x = w * s / (float) steps;
-                    float len = h * 0.22f * (0.55f + 0.45f * (float) Math.sin(x / w * 7f + t * 0.22f + i));
+                    float len = h * (0.1f + 0.08f * (float) Math.sin(x / w * 7f + t * 0.22f + i)
+                            + 0.025f * (float) Math.sin(x / w * 19f - t * 0.5f + i * 3));
                     float y = base - len + h * 0.03f * (float) Math.sin(x / w * 5.2f + t * (0.16f + i * 0.05f) + i * 2);
                     ribbon.lineTo(x, y);
                 }
                 ribbon.close();
-                add.setShader(glows[i]);
+                add.setShader(shaders[i]);
                 c.drawPath(ribbon, add);
             }
             paint.setColor(0xFF020407);
@@ -487,7 +506,7 @@ final class Scenes {
         @Override
         void prepare() {
             bg = new LinearGradient(0, 0, w, h, 0xFF04060C, 0xFF0C1526, Shader.TileMode.CLAMP);
-            line.setStrokeWidth(Math.max(1f, w / 800f));
+            line.setStrokeWidth(Math.max(1f, w / 640f));
         }
 
         private static float bounce(float v) {
@@ -525,7 +544,7 @@ final class Scenes {
                     float d2 = dx * dx + dy * dy;
                     if (d2 < max2) {
                         float a = 1f - (float) Math.sqrt(d2) / max;
-                        line.setColor(Ui.alpha(0xFF9CCBFF, (int) (a * a * 150)));
+                        line.setColor(Ui.alpha(0xFFA9D3FF, (int) (a * 205)));
                         c.drawLine(xi, yi, pos[j * 2], pos[j * 2 + 1], line);
                     }
                 }

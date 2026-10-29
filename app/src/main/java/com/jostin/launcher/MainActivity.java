@@ -407,6 +407,7 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
         }
         studyIcon.invalidate();
         dashboard.invalidate();
+        backdrop.invalidateGlass();
     }
 
     @Override
@@ -417,6 +418,8 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
         dock.setVisibility(Prefs.showDock(this) ? View.VISIBLE : View.GONE);
         int n = Prefs.dockCount(this);
         for (int i = 0; i < Prefs.SLOTS; i++) dockSlots[i].setVisibility(i < n ? View.VISIBLE : View.GONE);
+        if (Prefs.showMusic(this)) Media.addListener(this, musicCard);
+        else Media.removeListener(musicCard);
         musicCard.onMediaChanged();
         refreshDock();
         refreshStudy();

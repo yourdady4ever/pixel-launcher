@@ -229,6 +229,16 @@ class Backdrop extends View implements SensorEventListener {
         glass.add(new WeakReference<>(v));
     }
 
+    /** Redibuja todos los paneles de vidrio (cuando cambia su tinte u opacidad). */
+    void invalidateGlass() {
+        Iterator<WeakReference<View>> it = glass.iterator();
+        while (it.hasNext()) {
+            View v = it.next().get();
+            if (v == null) it.remove();
+            else if (v.isAttachedToWindow()) v.invalidate();
+        }
+    }
+
     Bitmap small() {
         return small;
     }
