@@ -120,13 +120,26 @@ final class Studio {
         col.addView(Ctl.section(a, "Ajustes"));
         col.addView(Ctl.slider(a, "Oscurecer", 0, 60, Prefs.wallDim(a), "%", (v, done) -> {
             h.backdrop().setUserDim(v / 100f);
-            if (done) Prefs.setWallDim(a, v);
+            if (done) {
+                Prefs.setWallDim(a, v);
+                SystemWall.sync(a);
+            }
         }));
         col.addView(Ctl.toggle(a, "Fondo en movimiento", "Las escenas se mueven y tus fotos hacen un acercamiento lento.",
                 Prefs.animated(a), v -> {
                     Prefs.setAnimated(a, v);
                     h.backdrop().setAnimated(v);
                 }));
+        col.addView(Ctl.toggle(a, "Usar en todo el teléfono", "Pone este fondo también en el sistema, para que el viejo no aparezca en apps recientes ni al cambiar de app. Android ajusta sus colores a este fondo.",
+                Prefs.syncSystem(a), v -> {
+                    Prefs.setSyncSystem(a, v);
+                    Prefs.setSyncedKey(a, "");
+                    SystemWall.sync(a);
+                }));
+        col.addView(Ctl.toggle(a, "También en la pantalla de bloqueo", null, Prefs.syncLock(a), v -> {
+            Prefs.setSyncLock(a, v);
+            SystemWall.sync(a);
+        }));
         col.addView(Ctl.toggle(a, "Efecto al inclinar", "El fondo se mueve un poco cuando inclinas el teléfono.",
                 Prefs.parallax(a), v -> {
                     Prefs.setParallax(a, v);

@@ -83,6 +83,14 @@ final class Prefs {
     static void setWallOverlay(Context c, int v) { put(c, "wall_overlay", v); }
     static int wallDim(Context c) { return i(c, "wall_dim", 0); }
     static void setWallDim(Context c, int v) { put(c, "wall_dim", v); }
+    /** Usar el fondo de Jostin OS también en el sistema (recientes, transiciones). */
+    static boolean syncSystem(Context c) { return b(c, "sync_system", true); }
+    static void setSyncSystem(Context c, boolean on) { put(c, "sync_system", on); }
+    static boolean syncLock(Context c) { return b(c, "sync_lock", true); }
+    static void setSyncLock(Context c, boolean on) { put(c, "sync_lock", on); }
+    static String syncedKey(Context c) { return s(c, "synced_key", ""); }
+    static void setSyncedKey(Context c, String k) { put(c, "synced_key", k); }
+
     static boolean animated(Context c) { return b(c, "anim", true); }
     static void setAnimated(Context c, boolean on) { put(c, "anim", on); }
     static boolean parallax(Context c) { return b(c, "parallax", true); }

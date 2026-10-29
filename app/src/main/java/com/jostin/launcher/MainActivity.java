@@ -100,6 +100,7 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
         if (!Prefs.slotsInitialized(this)) fillDefaultSlots();
         buildUi();
         backdrop.useCurrent();
+        SystemWall.sync(this);
         IntentFilter f = new IntentFilter();
         f.addAction(Intent.ACTION_PACKAGE_ADDED);
         f.addAction(Intent.ACTION_PACKAGE_REMOVED);
@@ -395,6 +396,7 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
     public void applyWallpaper() {
         backdrop.setAnimated(Prefs.animated(this));
         backdrop.useCurrent();
+        SystemWall.sync(this);
     }
 
     @Override

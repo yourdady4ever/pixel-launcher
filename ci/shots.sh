@@ -50,6 +50,12 @@ start --es open calc --es expr "'sin(30)+√(16)×2^3'"; snap 16_calc_color 5
 back
 start --es shot studio --ei tab 3; snap 17_estudio_inicio 4
 back
+# Fondo del sistema: recientes y pantalla de bloqueo deben verse con el fondo de Jostin OS
+start --ei theme 5; sleep 6
+adb shell input keyevent KEYCODE_APP_SWITCH; snap 18_recientes 3
+adb shell input keyevent KEYCODE_HOME; sleep 2
+adb shell input keyevent KEYCODE_SLEEP; sleep 2; adb shell input keyevent KEYCODE_WAKEUP; snap 19_bloqueo 3
+adb shell wm dismiss-keyguard || true
 start --ei demo_reset 1 --ei theme 0; sleep 3
 
 adb logcat -d -b crash > "$OUT/crash.txt" || true
