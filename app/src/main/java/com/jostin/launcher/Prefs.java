@@ -234,6 +234,9 @@ final class Prefs {
     static boolean panelMore(Context c) { return b(c, "panel_more", false); }
     static void setPanelMore(Context c, boolean on) { put(c, "panel_more", on); }
     static void setEdgeZone(Context c, int v) { put(c, "edge_zone", v); }
+    /** El ahorro de batería se apagó porque se conectó el cargador; al desconectarlo vuelve. */
+    static boolean saverBack(Context c) { return b(c, "saver_back", false); }
+    static void setSaverBack(Context c, boolean on) { put(c, "saver_back", on); }
 
     // ---------- Animaciones ----------
     /** 0 normal, 1 rápidas, 2 reducidas (casi sin movimiento), 3 apagadas. */

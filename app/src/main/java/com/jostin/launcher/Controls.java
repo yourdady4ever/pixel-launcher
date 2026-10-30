@@ -5,8 +5,10 @@ import android.app.NotificationManager;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.location.LocationManager;
 import android.media.AudioManager;
+import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
@@ -115,6 +117,11 @@ final class Controls {
                     return;
                 }
                 boolean on = saverOn(a);
+                // Igual que el botón de Android, que mientras carga no deja prenderlo
+                if (!on && plugged(a)) {
+                    Sheet.pill(a, b, "El ahorro de batería no se prende mientras carga");
+                    return;
+                }
                 try {
                     // Android vuelve a leer "low_power" cada vez que cambia y prende o apaga el ahorro
                     Settings.Global.putInt(cr, "low_power", on ? 0 : 1);
@@ -175,6 +182,34 @@ final class Controls {
     static boolean saverOn(Context c) {
         PowerManager pm = (PowerManager) c.getSystemService(Context.POWER_SERVICE);
         return pm != null && pm.isPowerSaveMode();
+    }
+
+    static boolean plugged(Context c) {
+        Intent i = c.registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+        return i != null && i.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0;
+    }
+
+    /**
+     * Android solo apaga al cargar el ahorro que prendió su propio botón: el prendido escribiendo
+     * "low_power" se quedaba prendido. Aquí se hace lo mismo que hace él: se apaga al conectar y,
+     * si al desconectar la batería sigue debajo de 90%, se prende otra vez.
+     */
+    static void saverCharging(Context c, boolean plugged) {
+        try {
+            if (plugged) {
+                if (!saverOn(c)) return;
+                Settings.Global.putInt(c.getContentResolver(), "low_power", 0);
+                Prefs.setSaverBack(c, true);
+            } else if (Prefs.saverBack(c)) {
+                Prefs.setSaverBack(c, false);
+                BatteryManager bm = (BatteryManager) c.getSystemService(Context.BATTERY_SERVICE);
+                if (bm != null && bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) < 90) {
+                    Settings.Global.putInt(c.getContentResolver(), "low_power", 1);
+                }
+            }
+        } catch (Exception ignored) {
+            // sin el permiso de ADB no se puede tocar
+        }
     }
 
     /** Empieza o termina el modo estudio (25 minutos) sin preguntar; para botones rápidos. */

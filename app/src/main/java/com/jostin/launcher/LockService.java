@@ -67,18 +67,30 @@ public class LockService extends AccessibilityService {
         }
     };
 
+    private final BroadcastReceiver power = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context c, Intent i) {
+            Controls.saverCharging(c, Intent.ACTION_POWER_CONNECTED.equals(i.getAction()));
+        }
+    };
+
     @Override
     protected void onServiceConnected() {
         instance = this;
         IntentFilter f = new IntentFilter(Intent.ACTION_SCREEN_OFF);
         f.addAction(Intent.ACTION_USER_PRESENT);
         f.addAction(Intent.ACTION_SCREEN_ON);
+        IntentFilter p = new IntentFilter(Intent.ACTION_POWER_CONNECTED);
+        p.addAction(Intent.ACTION_POWER_DISCONNECTED);
         try {
             registerReceiver(screen, f);
+            registerReceiver(power, p);
         } catch (Exception ignored) {
             // nada
         }
         refreshEdge();
+        // Pudo conectarse o desconectarse el cargador mientras el servicio no corría
+        Controls.saverCharging(this, Controls.plugged(this));
     }
 
     @Override
@@ -87,6 +99,7 @@ public class LockService extends AccessibilityService {
         removeStrip();
         try {
             unregisterReceiver(screen);
+            unregisterReceiver(power);
         } catch (Exception ignored) {
             // nada
         }
