@@ -635,7 +635,7 @@ final class Gadgets {
         private Widgets.Art art;
         private TextView title, artist;
         private ImageView play;
-        private Dashboard.Progress bar;
+        private Progress bar;
         private final Runnable progress = new Runnable() {
             @Override
             public void run() {
@@ -707,7 +707,7 @@ final class Gadgets {
                 r.addView(art, new LinearLayout.LayoutParams(side, side));
                 LinearLayout c = col();
                 c.addView(texts);
-                bar = new Dashboard.Progress(act);
+                bar = new Progress(act);
                 LinearLayout.LayoutParams bl = new LinearLayout.LayoutParams(-1, dp(4));
                 bl.topMargin = dp(12);
                 c.addView(bar, bl);
@@ -1189,7 +1189,7 @@ final class Gadgets {
 
     static final String[][] ACTIONS = {
             {"calc", "Calculadora", "Científica y obra"}, {"obra", "Obra", "Materiales de construcción"},
-            {"tasks", "Pendientes", "Ponte en el Mapa"}, {"panel", "Panel", "Clima, música y avisos"},
+            {"tasks", "Pendientes", "Ponte en el Mapa"}, {"panel", "Avisos", "La barra de Android"},
             {"buscar", "Buscar", "Apps y web"}, {"linterna", "Linterna", "Prender o apagar"},
             {"fondo", "Otro fondo", "Cambiar ahora"}, {"personalizar", "Personalizar", "Tu Jostin OS"},
             {"editar", "Editar inicio", "Mover y agregar"}, {"alarma", "Alarmas", "Reloj del teléfono"},
@@ -1433,7 +1433,7 @@ final class Gadgets {
 
     static final class BatteryG extends Gadget {
         private TextView pct, status;
-        private Dashboard.Progress bar;
+        private Progress bar;
         private Widgets.Ring ring;
 
         BatteryG(MainActivity a, HomeModel.Item it) {
@@ -1459,7 +1459,7 @@ final class Gadgets {
                 status.setGravity(Gravity.END);
                 r.addView(status, new LinearLayout.LayoutParams(0, -2, 1f));
                 c.addView(r, new LinearLayout.LayoutParams(-1, -2));
-                bar = new Dashboard.Progress(act);
+                bar = new Progress(act);
                 LinearLayout.LayoutParams bl = new LinearLayout.LayoutParams(-1, dp(6));
                 bl.topMargin = dp(10);
                 c.addView(bar, bl);

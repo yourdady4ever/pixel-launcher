@@ -142,14 +142,15 @@ final class Prefs {
     /** Deslizar arriba: 0 cajón, 1 buscar, 2 nada. */
     static int gUp(Context c) { return i(c, "g_up", 0); }
     static void setGUp(Context c, int v) { put(c, "g_up", v); }
-    /** Deslizar abajo: 0 panel, 1 notificaciones, 2 nada. */
+    /** Deslizar abajo: 2 nada; si no, la barra de Android. */
     static int gDown(Context c) { return i(c, "g_down", 0); }
     static void setGDown(Context c, int v) { put(c, "g_down", v); }
     /** Doble toque: 0 bloquear, 1 linterna, 2 siguiente fondo, 3 nada. */
     static int gDouble(Context c) { return i(c, "g_double", 0); }
     static void setGDouble(Context c, int v) { put(c, "g_double", v); }
     /** Mantener presionado: 0 personalizar, 1 fondos, 2 nada. */
-    static int gLong(Context c) { return i(c, "g_long", 0); }
+    // Antes el 3 era "Nada"; sin el engrane del panel te dejaría sin forma de llegar a Personalizar
+    static int gLong(Context c) { int v = i(c, "g_long", 0); return v > 2 ? 0 : v; }
     static void setGLong(Context c, int v) { put(c, "g_long", v); }
 
     // ---------- Clima ----------
@@ -216,27 +217,12 @@ final class Prefs {
     static void setDrawerSuggest(Context c, boolean on) { put(c, "drawer_suggest", on); }
 
     // ---------- Notificaciones ----------
-    static boolean notesPrivate(Context c) { return b(c, "notes_private", false); }
-    static void setNotesPrivate(Context c, boolean on) { put(c, "notes_private", on); }
-    static boolean notesInPanel(Context c) { return b(c, "notes_panel", true); }
-    static void setNotesInPanel(Context c, boolean on) { put(c, "notes_panel", on); }
 
     // ---------- Android ----------
     static boolean androidColors(Context c) { return b(c, "android_colors", false); }
     static void setAndroidColors(Context c, boolean on) { put(c, "android_colors", on); }
     static int androidStyle(Context c) { return i(c, "android_style", 0); }
     static void setAndroidStyle(Context c, int v) { put(c, "android_style", v); }
-    static boolean edgeShade(Context c) { return b(c, "edge_shade", false); }
-    static void setEdgeShade(Context c, boolean on) { put(c, "edge_shade", on); }
-    /** 0 toda la orilla, 1 mitad derecha, 2 mitad izquierda (la otra mitad sigue siendo de Android). */
-    // Toda la orilla: con media, en la otra mitad seguía saliendo el panel de Android
-    static int edgeZone(Context c) { return i(c, "edge_zone", 0); }
-    static boolean panelMore(Context c) { return b(c, "panel_more", false); }
-    static void setPanelMore(Context c, boolean on) { put(c, "panel_more", on); }
-    static void setEdgeZone(Context c, int v) { put(c, "edge_zone", v); }
-    /** El ahorro de batería se apagó porque se conectó el cargador; al desconectarlo vuelve. */
-    static boolean saverBack(Context c) { return b(c, "saver_back", false); }
-    static void setSaverBack(Context c, boolean on) { put(c, "saver_back", on); }
 
     // ---------- Animaciones ----------
     /** 0 normal, 1 rápidas, 2 reducidas (casi sin movimiento), 3 apagadas. */

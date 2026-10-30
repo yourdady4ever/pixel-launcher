@@ -4,7 +4,6 @@ import android.Manifest;
 import android.app.Activity;
 import android.app.ActivityOptions;
 import android.app.DatePickerDialog;
-import android.app.NotificationManager;
 import android.appwidget.AppWidgetManager;
 import android.appwidget.AppWidgetProviderInfo;
 import android.content.ActivityNotFoundException;
@@ -18,7 +17,6 @@ import android.content.pm.PackageManager;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.RectF;
-import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -35,7 +33,6 @@ import android.view.MotionEvent;
 import android.view.VelocityTracker;
 import android.view.View;
 import android.view.ViewConfiguration;
-import android.view.animation.DecelerateInterpolator;
 import android.view.animation.OvershootInterpolator;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
@@ -55,7 +52,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
-public class MainActivity extends Activity implements Studio.Host, Dashboard.Host, Drawer.Host, Backdrop.Listener, Media.Listener {
+public class MainActivity extends Activity implements Studio.Host, Drawer.Host, Backdrop.Listener, Media.Listener {
     static final Locale ES = new Locale("es", "MX");
     static final int REQ_PICK = 100, REQ_PHOTO = 200, REQ_ADD_APP = 300, REQ_BIND = 301, REQ_CONFIG = 302,
             REQ_GADGET_PHOTO = 303, REQ_ICON = 304, REQ_FOLDER_ADD = 305, REQ_CAL = 7;
@@ -68,7 +65,6 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
     private LinearLayout bottomBox, dock;
     private ImageView drawerButton;
     private View dockSep;
-    private Dashboard dashboard;
     private Drawer drawer;
     private final FrameLayout[] dockSlots = new FrameLayout[Prefs.SLOTS];
     private final ImageView[] dockIcons = new ImageView[Prefs.SLOTS];
@@ -85,8 +81,8 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
     private String pendingPkg;
     private int pendingWidget = -1;
 
-    // Arrastre vertical desde inicio (cajón o panel)
-    private static final int V_NONE = 0, V_DRAWER = 1, V_DASH = 2, V_DONE = 3;
+    // Arrastre vertical desde inicio (cajón)
+    private static final int V_NONE = 0, V_DRAWER = 1, V_DONE = 3;
     private int vdrag = V_NONE;
 
     private final Runnable ticker = new Runnable() {
@@ -227,8 +223,6 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
         bottomBox.addView(dock, new LinearLayout.LayoutParams(-2, -2));
         content.addView(bottomBox, new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM));
 
-        dashboard = new Dashboard(this, backdrop, this);
-        root.addView(dashboard, new FrameLayout.LayoutParams(-1, -1));
         drawer = new Drawer(this, backdrop, this, false);
         drawer.setVisibility(View.GONE);
         root.addView(drawer, new FrameLayout.LayoutParams(-1, -1));
@@ -451,7 +445,7 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
 
     @Override
     public void applyLook() {
-        Ui.setLightBars(this, Theme.wallLight && !drawerOpen && !dashboard.isOpen());
+        Ui.setLightBars(this, Theme.wallLight && !drawerOpen);
         // Solo se rehace inicio si de verdad cambió el color o lo claro del fondo
         if (Theme.accent != lookAccent || Theme.wallLight != lookLight) {
             lookAccent = Theme.accent;
@@ -461,7 +455,6 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
             home.rebuildAll();
             if (SystemColors.enabled(this)) SystemWall.sync(this);
         }
-        dashboard.invalidate();
         backdrop.invalidateGlass();
     }
 
@@ -495,7 +488,7 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
         backdrop.setParallax(Prefs.parallax(this) && Prefs.motion(this) < 2);
         backdrop.setSmooth(Prefs.smooth(this));
         backdrop.setRunning(true);
-        Ui.setLightBars(this, Theme.wallLight && !drawerOpen && !dashboard.isOpen());
+        Ui.setLightBars(this, Theme.wallLight && !drawerOpen);
         AppWidgets.start(this);
         home.start();
         refreshDock();
@@ -506,9 +499,8 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
         handler.postDelayed(stable, 8000);
         Weather.refresh(this, false, n -> {
             home.tick();
-            dashboard.refreshWeather();
         });
-        if (!drawerOpen && !dashboard.isOpen() && !home.editing) playEntrance();
+        if (!drawerOpen && !home.editing) playEntrance();
     }
 
     @Override
@@ -547,10 +539,6 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
             closeDrawer();
             return;
         }
-        if (dashboard.isOpen()) {
-            closeDashboard();
-            return;
-        }
         if (home.editing) {
             home.setEditing(false);
             return;
@@ -567,7 +555,6 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
         if (Sheet.dismissTop(this)) return;
         if (overlay.getVisibility() == View.VISIBLE) closeOverlay();
         else if (drawerOpen) closeDrawer();
-        else if (dashboard.isOpen()) closeDashboard();
         else if (home.editing) home.setEditing(false);
         else if (home.page != 0) home.goTo(0, true);
     }
@@ -575,7 +562,7 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
     @Override
     public boolean dispatchTouchEvent(MotionEvent e) {
         // El fondo reacciona al dedo (la constelación se aparta) solo con inicio a la vista
-        if (!drawerOpen && !dashboard.isOpen() && overlay.getVisibility() != View.VISIBLE && !home.editing) {
+        if (!drawerOpen && overlay.getVisibility() != View.VISIBLE && !home.editing) {
             int a = e.getActionMasked();
             backdrop.touch(e.getX(), e.getY(), a == MotionEvent.ACTION_DOWN || a == MotionEvent.ACTION_MOVE);
         }
@@ -789,14 +776,8 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
                 drawer.setProgress(0f);
             }
         } else {
-            int g = Prefs.gDown(this);
-            if (g == 0) {
-                vdrag = V_DASH;
-                dashboard.setProgress(0f);
-            } else {
-                vdrag = V_DONE;
-                if (g == 1) expandNotifications();
-            }
+            vdrag = V_DONE;
+            if (Prefs.gDown(this) != 2) expandNotifications();
         }
     }
 
@@ -805,10 +786,6 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
         if (vdrag == V_DRAWER) {
             float f = Math.max(0f, Math.min(1f, -dy / (h * 0.45f)));
             drawer.setProgress(f);
-            content.setAlpha(1f - f * 0.8f);
-        } else if (vdrag == V_DASH) {
-            float f = Math.max(0f, Math.min(1f, dy / (h * 0.4f)));
-            dashboard.setProgress(f);
             content.setAlpha(1f - f * 0.8f);
         }
     }
@@ -819,10 +796,6 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
             float f = Math.max(0f, Math.min(1f, -dy / (h * 0.45f)));
             if (f > 0.28f || vy < -900) openDrawer(Prefs.gUp(this) == 1);
             else closeDrawer();
-        } else if (vdrag == V_DASH) {
-            float f = Math.max(0f, Math.min(1f, dy / (h * 0.4f)));
-            if (f > 0.25f || vy > 900) openDashboard();
-            else closeDashboard();
         }
         vdrag = V_NONE;
     }
@@ -910,14 +883,9 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
                     Sheet.pill(this, backdrop, "Actualizando el clima…");
                     Weather.refresh(this, true, n -> {
                         home.tick();
-                        dashboard.refreshWeather();
                     });
                 }),
-                Sheet.item("Cambiar ciudad", Gadgets.GLOBE, this::askCity),
-                Sheet.item("Ver el panel", Widgets.BELL, () -> {
-                    dashboard.setProgress(0f);
-                    openDashboard();
-                }));
+                Sheet.item("Cambiar ciudad", Gadgets.GLOBE, this::askCity));
     }
 
     void openMusicApp() {
@@ -946,7 +914,7 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
         openJarvis();
     }
 
-    /** Acciones de los atajos (también las usa el panel y la revisión automática). */
+    /** Acciones de los atajos (también los usa la revisión automática). */
     void shortcut(String a) {
         switch (a) {
             case "calc":
@@ -959,8 +927,7 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
                 Screen.open(this, new Intent(this, PendientesActivity.class));
                 break;
             case "panel":
-                dashboard.setProgress(0f);
-                openDashboard();
+                expandNotifications();
                 break;
             case "buscar":
                 openDrawer(true);
@@ -1223,7 +1190,7 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
         if (next != null) handler.postDelayed(next, 450);
     }
 
-    // ==================== Cajón y panel ====================
+    // ==================== Cajón ====================
 
     private void openDrawer(boolean search) {
         drawerOpen = true;
@@ -1238,19 +1205,6 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
     public void closeDrawer() {
         drawerOpen = false;
         drawer.settle(false, null);
-        content.animate().alpha(1f).setStartDelay(0).setDuration(300).start();
-        Ui.setLightBars(this, Theme.wallLight);
-    }
-
-    private void openDashboard() {
-        dashboard.settle(true);
-        content.animate().alpha(0f).setStartDelay(0).setDuration(240).start();
-        Ui.setLightBars(this, false);
-    }
-
-    @Override
-    public void closeDashboard() {
-        dashboard.settle(false);
         content.animate().alpha(1f).setStartDelay(0).setDuration(300).start();
         Ui.setLightBars(this, Theme.wallLight);
     }
@@ -1349,25 +1303,17 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
         Sheet.show(this, backdrop, "Apps ocultas", items);
     }
 
-    // ==================== Panel (Dashboard.Host) ====================
-
-    @Override
-    public void personalize() {
-        closeDashboard();
-        handler.postDelayed(() -> Studio.show(this, this, -1), 260);
-    }
+    // ==================== Clima y saludo ====================
 
     @Override
     public void askCity() {
         Sheet.prompt(this, backdrop, "¿De qué ciudad quieres el clima?", "Ejemplo: Cuautla", Prefs.city(this), v -> {
             Prefs.setCity(this, v);
             home.tick();
-            dashboard.refreshWeather();
             if (!v.isEmpty()) {
                 Sheet.pill(this, backdrop, "Buscando el clima de " + v);
                 Weather.refresh(this, true, n -> {
                     home.tick();
-                    dashboard.refreshWeather();
                 });
             }
         });
@@ -1379,43 +1325,6 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
             Prefs.setGreeting(this, v);
             home.tick();
         });
-    }
-
-    @Override
-    public void quick(int action) {
-        if (action >= Dashboard.Q_ROTATE) {
-            // Para grabar se cierra el panel primero, si no saldría en el video
-            if (action == Dashboard.Q_RECORD && !Recorder.recording) closeDashboard();
-            Controls.extra(this, backdrop, action);
-            return;
-        }
-        switch (action) {
-            case Dashboard.Q_TORCH:
-                toggle(0);
-                break;
-            case Dashboard.Q_STUDY:
-                closeDashboard();
-                handler.postDelayed(this::toggleStudy, 260);
-                break;
-            case Dashboard.Q_WALL:
-                nextWallpaper();
-                break;
-            case Dashboard.Q_NET:
-                toggle(1);
-                break;
-            case Dashboard.Q_BT:
-                startSafe(new Intent(Settings.ACTION_BLUETOOTH_SETTINGS), null);
-                break;
-            case Dashboard.Q_DND:
-                toggle(3);
-                break;
-            case Dashboard.Q_VOL:
-                toggle(2);
-                break;
-            default:
-                if (!LockService.lock()) requestLock();
-                break;
-        }
     }
 
     @Override
@@ -1907,7 +1816,6 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
             Prefs.setCity(this, i.getStringExtra("demo_city"));
             Weather.refresh(this, true, n -> {
                 home.tick();
-                dashboard.refreshWeather();
             });
             any = true;
         }
@@ -1928,11 +1836,6 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
             Prefs.setAndroidColors(this, i.getBooleanExtra("demo_android_colors", false));
             Prefs.setAndroidStyle(this, 1);
             SystemWall.sync(this);
-            any = true;
-        }
-        if (i.hasExtra("demo_edge")) {
-            Prefs.setEdgeShade(this, i.getBooleanExtra("demo_edge", false));
-            LockService.updateEdge();
             any = true;
         }
         if (i.getBooleanExtra("jostin_studio", false)) {
@@ -1957,14 +1860,13 @@ public class MainActivity extends Activity implements Studio.Host, Dashboard.Hos
         }
         // Que no se repitan si la actividad se recrea
         for (String k : new String[]{"demo_reset", "theme", "demo_effect", "demo_overlay", "demo_clock", "demo_city", "demo_photo",
-                "demo_free", "shot", "open", "arg", "jostin_studio", "demo_android_colors", "demo_edge"}) i.removeExtra(k);
+                "demo_free", "shot", "open", "arg", "jostin_studio", "demo_android_colors"}) i.removeExtra(k);
         return any;
     }
 
     private void demoShot(String shot, int tab, String arg) {
         switch (shot) {
             case "studio": Studio.show(this, this, tab); break;
-            case "dashboard": dashboard.setProgress(0f); openDashboard(); break;
             case "drawer": openDrawer(false); break;
             case "calendar": showCalendar(); break;
             case "study":

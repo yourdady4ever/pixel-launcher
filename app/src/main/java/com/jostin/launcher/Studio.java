@@ -361,20 +361,17 @@ final class Studio {
         if (!Media.hasAccess(a)) {
             col.addView(Ctl.section(a, "Permiso"));
             col.addView(Ctl.action(a, Widgets.BELL, "Dar permiso de notificaciones", "Necesario", v -> Media.requestAccess(a)));
-            TextView t = Ui.text(a, "Sin este permiso no se pueden ver tus avisos, la música que suena ni los puntos en los íconos. Jostin OS no guarda ni manda tus notificaciones a ningún lado.", 12, Ui.MUTED, Ui.REGULAR);
+            TextView t = Ui.text(a, "Sin este permiso no se puede ver la música que suena ni poner los puntos en los íconos. Jostin OS no guarda ni manda tus notificaciones a ningún lado.", 12, Ui.MUTED, Ui.REGULAR);
             t.setLineSpacing(0, 1.2f);
             t.setPadding(Ui.dp(a, 4), Ui.dp(a, 10), 0, 0);
             col.addView(t);
         }
-        col.addView(Ctl.section(a, "En el panel"));
-        col.addView(Ctl.toggle(a, "Mostrar notificaciones", "En el panel que baja deslizando desde el centro de inicio.", Prefs.notesInPanel(a), v -> Prefs.setNotesInPanel(a, v)));
-        col.addView(Ctl.toggle(a, "Ocultar el contenido", "Solo se ve de qué app es y el título, no el mensaje. Útil si alguien más ve tu pantalla.", Prefs.notesPrivate(a), v -> Prefs.setNotesPrivate(a, v)));
         col.addView(Ctl.section(a, "En los íconos"));
         col.addView(Ctl.toggle(a, "Puntos de notificación", null, Prefs.badges(a), v -> {
             Prefs.setBadges(a, v);
             h.applyHome();
         }));
-        TextView t = Ui.text(a, "La barra que baja desde el borde de arriba es la de Android: su diseño no lo puede cambiar ninguna app. Deslizar una notificación en el panel de Jostin sí la quita de Android también.", 12, Ui.MUTED, Ui.REGULAR);
+        TextView t = Ui.text(a, "Tus avisos están en la barra de Android, la que baja desde arriba. Aquí solo decides si salen los puntos en los íconos.", 12, Ui.MUTED, Ui.REGULAR);
         t.setLineSpacing(0, 1.2f);
         t.setPadding(Ui.dp(a, 4), Ui.dp(a, 14), 0, 0);
         col.addView(t);
@@ -386,7 +383,7 @@ final class Studio {
         col.addView(Ctl.section(a, "Deslizar hacia arriba"));
         col.addView(Ctl.chips(a, new String[]{"Cajón de apps", "Buscar", "Nada"}, Prefs.gUp(a), v -> Prefs.setGUp(a, v)));
         col.addView(Ctl.section(a, "Deslizar hacia abajo"));
-        col.addView(Ctl.chips(a, new String[]{"Panel", "Notificaciones", "Nada"}, Prefs.gDown(a), v -> Prefs.setGDown(a, v)));
+        col.addView(Ctl.chips(a, new String[]{"Barra de Android", "Nada"}, Prefs.gDown(a) == 2 ? 1 : 0, v -> Prefs.setGDown(a, v == 1 ? 2 : 1)));
         col.addView(Ctl.section(a, "Doble toque"));
         col.addView(Ctl.chips(a, new String[]{"Bloquear pantalla", "Linterna", "Otro fondo", "Nada"}, Prefs.gDouble(a), v -> Prefs.setGDouble(a, v)));
         if (LockService.instance == null) {
@@ -395,11 +392,7 @@ final class Studio {
             col.addView(Ctl.action(a, Widgets.LOCK, "Activar bloqueo con doble toque", "Permiso", v -> h.requestLock()));
         }
         col.addView(Ctl.section(a, "Mantener presionado un espacio vacío"));
-        col.addView(Ctl.chips(a, new String[]{"Menú", "Editar inicio", "Personalizar", "Nada"}, Prefs.gLong(a), v -> Prefs.setGLong(a, v)));
-        TextView tip = Ui.text(a, "Aunque elijas «Nada», puedes llegar aquí con el engrane del panel que baja desde arriba.", 12, Ui.MUTED, Ui.REGULAR);
-        tip.setLineSpacing(0, 1.2f);
-        tip.setPadding(Ui.dp(a, 4), Ui.dp(a, 12), 0, 0);
-        col.addView(tip);
+        col.addView(Ctl.chips(a, new String[]{"Menú", "Editar inicio", "Personalizar"}, Prefs.gLong(a), v -> Prefs.setGLong(a, v)));
     }
 
     // ---------- Sonido y batería ----------
@@ -464,9 +457,8 @@ final class Studio {
     private static void limits(Activity a, Host h) {
         String[][] items = {
                 {"Pantalla de bloqueo", "Ninguna app puede reemplazarla ni cambiar cómo pides tu PIN o huella. Jostin OS solo le pone tu fondo y el reloj de carga."},
-                {"Barra de notificaciones y ajustes rápidos", "La que baja desde el borde de arriba es de Android. Su diseño no se puede cambiar; el panel de Jostin baja deslizando desde el centro."},
+                {"Barra de notificaciones y ajustes rápidos", "La que baja desde el borde de arriba es de Android. Su diseño no se puede cambiar."},
                 {"Wi-Fi, Bluetooth y datos", "Desde Android 10 las apps no pueden prenderlos o apagarlos directo. Jostin abre el panel de Android para que lo hagas con un toque."},
-                {"Brillo", "Funciona solo si le das el permiso de «Modificar ajustes del sistema»."},
                 {"Bloquear con doble toque", "Android solo deja hacerlo con un servicio de accesibilidad, que tú activas y puedes quitar cuando quieras."},
                 {"Widgets de otras apps", "Algunos no cambian de tamaño o no se pueden configurar de nuevo; eso lo decide cada app."},
                 {"Atajos de las apps", "Android solo se los da a la app de inicio que tengas como predeterminada."},

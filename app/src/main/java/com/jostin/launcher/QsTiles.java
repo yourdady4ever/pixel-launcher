@@ -9,7 +9,7 @@ import android.service.quicksettings.TileService;
 
 /** Botones de Jostin OS para los ajustes rápidos de Android (la barra que baja desde arriba). */
 public class QsTiles {
-    static final String[] NAMES = {"Study", "Wall", "Jarvis", "Panel"};
+    static final String[] NAMES = {"Study", "Wall", "Jarvis"};
 
     static String spec(Context c, String name) {
         return "custom(" + new android.content.ComponentName(c, QsTiles.class.getName() + "$" + name).flattenToShortString() + ")";
@@ -93,23 +93,6 @@ public class QsTiles {
             Intent i = getPackageManager().getLaunchIntentForPackage(MainActivity.CLAUDE_PKG);
             if (i == null) i = new Intent(Intent.ACTION_VIEW, android.net.Uri.parse("market://details?id=" + MainActivity.CLAUDE_PKG));
             open(this, i);
-        }
-    }
-
-    /** Abre el panel de Jostin OS encima de lo que estés usando. */
-    public static class Panel extends TileService {
-        @Override
-        public void onStartListening() {
-            Tile t = getQsTile();
-            if (t == null) return;
-            t.setState(Tile.STATE_INACTIVE);
-            t.setLabel("Panel Jostin");
-            t.updateTile();
-        }
-
-        @Override
-        public void onClick() {
-            open(this, new Intent(this, ShadeActivity.class));
         }
     }
 }

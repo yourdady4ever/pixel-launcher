@@ -3,10 +3,8 @@ package com.jostin.launcher;
 import android.app.Activity;
 import android.app.StatusBarManager;
 import android.content.ComponentName;
-import android.content.Intent;
 import android.graphics.drawable.Icon;
 import android.os.Build;
-import android.provider.Settings;
 import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -61,32 +59,8 @@ final class AndroidStudio {
 
         // ---------- Botones ----------
         col.addView(Ctl.section(a, "Botones en los ajustes rápidos"));
-        col.addView(Ctl.action(a, Icons.PLUS, "Agregar los botones de Jostin", "4", v -> addTiles(a, h)));
-        col.addView(note(a, "Modo estudio, Otro fondo, Jarvis y Panel Jostin, junto a los de Wi-Fi y Bluetooth en la barra de arriba. Si no aparecen, baja la barra, toca el lápiz y arrástralos."));
-
-        // ---------- Orilla ----------
-        col.addView(Ctl.section(a, "Deslizar desde la orilla de arriba"));
-        if (!LockService.running()) {
-            col.addView(note(a, "Para que la orilla de arriba abra el panel de Jostin en cualquier app, activa «Jostin OS» en Accesibilidad (el mismo permiso del doble toque). Si Android dice que es una configuración restringida: Ajustes > Apps > Jostin OS > ⋮ > Permitir configuración restringida."));
-            col.addView(Ctl.action(a, Widgets.LOCK, "Abrir Accesibilidad", null, v -> {
-                try {
-                    a.startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
-                } catch (Exception ignored) {
-                    // nada
-                }
-            }));
-        }
-        col.addView(Ctl.toggle(a, "Abrir el panel de Jostin", "Deslizando hacia abajo desde la orilla, en cualquier app.", Prefs.edgeShade(a), on -> {
-            Prefs.setEdgeShade(a, on);
-            LockService.updateEdge();
-            if (on && !LockService.running()) Sheet.pill(a, h.backdrop(), "Falta activarlo en Accesibilidad");
-        }));
-        col.addView(Ctl.section(a, "¿En qué parte de la orilla?"));
-        col.addView(Ctl.chips(a, new String[]{"Toda", "Mitad derecha", "Mitad izquierda"}, Prefs.edgeZone(a), v -> {
-            Prefs.setEdgeZone(a, v);
-            LockService.updateEdge();
-        }));
-        col.addView(note(a, "En la otra mitad sigue saliendo la barra de Android, por si la necesitas. En la pantalla de bloqueo siempre sale la de Android. En juegos o videos a pantalla completa, la franja de arriba puede estorbar; aquí la apagas."));
+        col.addView(Ctl.action(a, Icons.PLUS, "Agregar los botones de Jostin", "3", v -> addTiles(a, h)));
+        col.addView(note(a, "Modo estudio, Otro fondo y Jarvis, junto a los de Wi-Fi y Bluetooth en la barra de arriba. Si no aparecen, baja la barra, toca el lápiz y arrástralos."));
     }
 
     private static void addTiles(Activity a, Studio.Host h) {
@@ -108,8 +82,8 @@ final class AndroidStudio {
         if (Build.VERSION.SDK_INT < 33 || i >= QsTiles.NAMES.length) return;
         StatusBarManager sb = a.getSystemService(StatusBarManager.class);
         if (sb == null) return;
-        String[] labels = {"Modo estudio", "Otro fondo", "Jarvis", "Panel Jostin"};
-        String[] icons = {"qs_study", "qs_wall", "qs_spark", "qs_panel"};
+        String[] labels = {"Modo estudio", "Otro fondo", "Jarvis"};
+        String[] icons = {"qs_study", "qs_wall", "qs_spark"};
         ComponentName cn = new ComponentName(a, QsTiles.class.getName() + "$" + QsTiles.NAMES[i]);
         try {
             sb.requestAddTileService(cn, labels[i], Icon.createWithResource(a, a.getResources().getIdentifier(icons[i], "drawable", a.getPackageName())), a.getMainExecutor(), r -> a.runOnUiThread(() -> request(a, h, i + 1)));

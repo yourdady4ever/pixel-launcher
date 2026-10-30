@@ -10,7 +10,7 @@ import android.os.BatteryManager;
 import android.os.Environment;
 import android.os.StatFs;
 
-/** Datos del teléfono para el panel (batería, almacenamiento, memoria) y la linterna. */
+/** Datos del teléfono (batería, almacenamiento, memoria) y la linterna. */
 final class Device {
     private Device() {}
 

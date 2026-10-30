@@ -6,8 +6,6 @@
     <uses-permission android:name="android.permission.EXPAND_STATUS_BAR" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.SET_WALLPAPER" />
-    <!-- Brillo desde el panel; Android lo pide como permiso especial y tú decides -->
-    <uses-permission android:name="android.permission.WRITE_SETTINGS" />
     <!-- Colores de Android iguales a Jostin: solo funciona si lo das tú una vez con ADB -->
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" tools:ignore="ProtectedPermissions" />
     <!-- Solo para el widget de agenda; se pide al agregarlo -->
@@ -16,9 +14,6 @@
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
     <!-- Espacio privado (Android 15+): Android solo se lo enseña al launcher predeterminado que pide esto -->
     <uses-permission android:name="android.permission.ACCESS_HIDDEN_PROFILES" />
-    <!-- Grabar pantalla desde el panel; Android igual pregunta cada vez -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
 
     <!-- Para poder ver y abrir las apps instaladas (Android 11+) -->
     <queries>
@@ -118,29 +113,6 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/lock_service" />
         </service>
-        <!-- Grabar pantalla: una pantalla invisible para el permiso y el servicio que graba -->
-        <activity
-            android:name=".Recorder$Ask"
-            android:exported="false"
-            android:excludeFromRecents="true"
-            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
-
-        <service
-            android:name=".Recorder$Service"
-            android:exported="false"
-            android:foregroundServiceType="mediaProjection" />
-
-        <!-- Panel de Jostin encima de cualquier app (orilla de arriba o botón de ajustes rápidos) -->
-        <activity
-            android:name=".ShadeActivity"
-            android:exported="false"
-            android:taskAffinity="com.jostin.launcher.panel"
-            android:launchMode="singleTask"
-            android:excludeFromRecents="true"
-            android:noHistory="true"
-            android:screenOrientation="portrait"
-            android:windowSoftInputMode="adjustResize|stateHidden" />
-
         <service
             android:name=".QsTiles$Study"
             android:label="Modo estudio"
@@ -168,17 +140,6 @@
             android:name=".QsTiles$Jarvis"
             android:label="Jarvis"
             android:icon="@drawable/qs_spark"
-            android:exported="true"
-            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
-            <intent-filter>
-                <action android:name="android.service.quicksettings.action.QS_TILE" />
-            </intent-filter>
-        </service>
-
-        <service
-            android:name=".QsTiles$Panel"
-            android:label="Panel Jostin"
-            android:icon="@drawable/qs_panel"
             android:exported="true"
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
             <intent-filter>
