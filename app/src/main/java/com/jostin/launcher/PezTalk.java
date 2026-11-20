@@ -33,7 +33,16 @@ final class PezTalk {
 
     private PezTalk() {}
 
+    private static Context appCtx;
+    private static boolean recentLoaded;
+
+    /** Las frases recientes y la hora del último saludo se guardan aparte, para no olvidarlas al recrear el gadget. */
+    private static android.content.SharedPreferences sp() {
+        return appCtx.getSharedPreferences("pez_talk", Context.MODE_PRIVATE);
+    }
+
     private static synchronized JSONObject phrases(Context c) {
+        if (appCtx == null) appCtx = c.getApplicationContext();
         if (L != null) return L;
         try (InputStream in = c.getAssets().open("pez/frases.json")) {
             ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -71,19 +80,39 @@ final class PezTalk {
         return a.get(R.nextInt(a.size()));
     }
 
-    /** Elige una al azar sin repetir las últimas 24. */
+    /** Elige entre las que no ha dicho hace poco (las últimas 60); si ya dijo todas, cualquiera. */
     static String pickFresh(List<String> a) {
         if (a == null || a.isEmpty()) return "";
-        String s = pick(a);
-        for (int i = 0; i < 10 && recent.contains(s); i++) s = pick(a);
+        if (!recentLoaded && appCtx != null) {
+            recentLoaded = true;
+            try {
+                JSONArray r = new JSONArray(sp().getString("recent", "[]"));
+                for (int i = 0; i < r.length(); i++) recent.add(r.optString(i));
+            } catch (Exception ignored) {
+                // sin historial
+            }
+        }
+        List<String> fresh = new ArrayList<>();
+        for (String x : a) if (!recent.contains(x)) fresh.add(x);
+        String s = pick(fresh.isEmpty() ? a : fresh);
+        recent.remove(s);
         recent.add(s);
-        if (recent.size() > 24) recent.remove(0);
+        while (recent.size() > 60) recent.remove(0);
+        if (appCtx != null) sp().edit().putString("recent", new JSONArray(recent).toString()).apply();
         return s;
     }
 
+    /** Hasta cuándo está despierto aunque sea de madrugada (un toque o volver a inicio: 2 min). */
+    static long wakeUntil = 0;
+
+    static void wake() {
+        wakeUntil = SystemClock.elapsedRealtime() + 120_000;
+    }
+
+    /** Duerme de 2 a 6 de la mañana, salvo que lo acaben de despertar. */
     static boolean sleeping() {
         int h = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
-        return h >= 1 && h < 7;
+        return h >= 2 && h < 6 && SystemClock.elapsedRealtime() > wakeUntil;
     }
 
     static List<String> seasonal(Context c) {
@@ -108,7 +137,12 @@ final class PezTalk {
         return out;
     }
 
-    static String greet(Context c, float food) {
+    /** Saluda solo si pasaron más de 15 min desde el último saludo; si no, platica normal. */
+    static String greet(Context c, float food, float happy) {
+        phrases(c);
+        long now = System.currentTimeMillis();
+        if (now - sp().getLong("greet_at", 0) < 15 * 60_000L) return chatter(c, food, happy);
+        sp().edit().putLong("greet_at", now).apply();
         int h = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
         if (food < 30) return "¡Volviste! Tengo un hambre… 🍤";
         return pickFresh(get(c, h < 5 ? "lateNight" : h < 12 ? "morning" : h < 19 ? "afternoon" : "evening"));
@@ -118,8 +152,8 @@ final class PezTalk {
         int h = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
         if (sleeping()) return pickFresh(get(c, "night"));
         if (food < 10) return pickFresh(get(c, "starving"));
-        if (food < 30) return pickFresh(get(c, "hungry"));
-        if (happy < 30) return pickFresh(get(c, "bored"));
+        if (food < 30 && R.nextDouble() < .45) return pickFresh(get(c, "hungry"));
+        if (happy < 30 && R.nextDouble() < .4) return pickFresh(get(c, "bored"));
         if (T() > appCool) {
             String a = appLine(c);
             if (a != null && R.nextDouble() < .6) {

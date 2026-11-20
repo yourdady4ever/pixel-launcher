@@ -1978,6 +1978,21 @@ final class Gadgets {
         /** Dónde está el pez (para saber si lo tocaste a él o al resto del cuadro). */
         private final RectF fishBox = new RectF();
         private float downX = -1, downY = -1;
+        // Dónde va el pez y a qué velocidad (px por cuadro de 60 fps, en dp)
+        private float fx = Float.NaN, fy, fishV, swimPh, swimSv;
+        private int fdir = -1;
+        private long lastUp;
+        private final float[] bubX = new float[3];
+        private final long[] bubN = {-1, -1, -1};
+        private boolean slow;
+        private int hourNow = -1;
+        // Brillos (se crean una vez y se reacomodan con una matriz, sin objetos nuevos por cuadro)
+        private final Paint glowP = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final android.graphics.Matrix glowM = new android.graphics.Matrix();
+        private RadialGradient bgGlow, fishGlow;
+        private float bgW, bgH;
+        private int glowCol;
+        private String sandRow;
         private static long appsAt;
 
         PezG(MainActivity a, HomeModel.Item it) {
@@ -2038,6 +2053,7 @@ final class Gadgets {
             if (e.getActionMasked() == android.view.MotionEvent.ACTION_DOWN) {
                 downX = e.getX();
                 downY = e.getY();
+                PezTalk.wake();
             }
             return super.dispatchTouchEvent(e);
         }
@@ -2077,7 +2093,11 @@ final class Gadgets {
             super.start();
             // Con animaciones reducidas o el ahorro de batería, el pez se queda quieto
             android.os.PowerManager pm = (android.os.PowerManager) act.getSystemService(Context.POWER_SERVICE);
-            still = Prefs.motion(act) >= 2 || (pm != null && pm.isPowerSaveMode());
+            // Antes el ahorro de batería lo dejaba congelado; ahora solo anima más lento
+            still = Prefs.motion(act) >= 2;
+            slow = pm != null && pm.isPowerSaveMode();
+            PezTalk.wake();
+            lastUp = 0;
             sleepAt = 0;
             // Al volver a inicio saluda (cuando de verdad se vea)
             wantGreet = true;
@@ -2161,10 +2181,32 @@ final class Gadgets {
             // Solo se anima mientras se ve; fuera de la pantalla revisa despacito por si vuelves
             if (started && seen) {
                 removeCallbacks(frame);
-                postDelayed(frame, still ? 1000 : 50);
+                postDelayed(frame, still ? 1000 : slow ? 100 : 50);
             } else {
                 removeCallbacks(frame);
             }
+        }
+
+        @Override
+        protected void onAttachedToWindow() {
+            super.onAttachedToWindow();
+            lastUp = 0;
+            invalidate();
+        }
+
+        /** hsl(h, s, l) a color, como en la página (para el arcoíris letra por letra). */
+        private static int hsl(float h, float s, float l) {
+            float c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs((h / 60f) % 2 - 1)), m = l - c / 2;
+            float r, g, b;
+            switch ((int) (h / 60f) % 6) {
+                case 0: r = c; g = x; b = 0; break;
+                case 1: r = x; g = c; b = 0; break;
+                case 2: r = 0; g = c; b = x; break;
+                case 3: r = 0; g = x; b = c; break;
+                case 4: r = x; g = 0; b = c; break;
+                default: r = c; g = 0; b = x; break;
+            }
+            return Color.rgb(Math.round((r + m) * 255), Math.round((g + m) * 255), Math.round((b + m) * 255));
         }
 
         @Override
@@ -2182,9 +2224,9 @@ final class Gadgets {
             if (started && seen && !loading && now - fetchedAt > EVERY) fetch();
             if (now - sleepAt > 30_000) {
                 sleepAt = now;
-                int hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
-                asleep = hour >= 1 && hour < 7;
+                hourNow = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
             }
+            asleep = hourNow >= 2 && hourNow < 6 && SystemClock.elapsedRealtime() > PezTalk.wakeUntil;
             Pez p = pez;
             float food = p == null ? 100 : p.food(now), happy = p == null ? 100 : p.happy(now);
             boolean alert = p != null && (food < 25 || happy < 25);
@@ -2195,6 +2237,14 @@ final class Gadgets {
             box.setStyle(Paint.Style.FILL);
             box.setColor(0xF7020604);
             c.drawRoundRect(r, rad, rad, box);
+            if (bgGlow == null || bgW != W || bgH != H) {
+                bgW = W;
+                bgH = H;
+                bgGlow = new RadialGradient(L + W / 2f, T + H * 0.4f, Math.max(W, H) * 0.7f, 0x3300D8B0, 0x00000000, Shader.TileMode.CLAMP);
+                glowP.setShader(bgGlow);
+            }
+            glowP.setShader(bgGlow);
+            c.drawRoundRect(r, rad, rad, glowP);
             c.drawRoundRect(r, rad, rad, scan);
             float bw = Math.max(1f, dp(1.2f));
             r.inset(bw / 2f, bw / 2f);
@@ -2217,19 +2267,20 @@ final class Gadgets {
             ui.setStyle(Paint.Style.FILL);
             ui.setTextSize(hs);
             ui.setTextAlign(Paint.Align.LEFT);
+            String mood = p == null ? (offline ? "SIN RED" : "…") : asleep ? "zzz" : food < 25 ? "¡HAMBRE!"
+                    : happy < 25 ? "¡ABURRIDO!" : offline ? "♥ FELIZ · SIN RED" : "♥ FELIZ";
+            int moodCol = alert ? RED : GREEN;
+            ui.setTextAlign(Paint.Align.RIGHT);
+            ui.setColor(moodCol);
+            ui.setShadowLayer(hs * 0.7f, 0, 0, Ui.alpha(moodCol, 0x99));
+            c.drawText(mood, x1, y0 + hs * 0.8f, ui);
+            float moodW = ui.measureText(mood) + hs;
+            ui.setTextAlign(Paint.Align.LEFT);
             ui.setColor(Ui.alpha(GREEN, 0xB3));
             ui.setShadowLayer(hs * 0.6f, 0, 0, Ui.alpha(GREEN, 0x66));
-            String h = header(p);
-            float bang = alert ? hs * 1.6f : 0;
-            int fit = ui.breakText(h, true, Math.max(0, x1 - x0 - bang), null);
+            String h = "C:\\ESTUDIO\\PEZ.EXE";
+            int fit = ui.breakText(h, true, Math.max(0, x1 - x0 - moodW), null);
             c.drawText(h, 0, fit, x0, y0 + hs * 0.8f, ui);
-            if (alert) {
-                ui.setTextAlign(Paint.Align.RIGHT);
-                ui.setTextSize(hs * 1.7f);
-                ui.setColor(RED);
-                ui.setShadowLayer(hs, 0, 0, RED);
-                c.drawText("!", x1, y0 + hs * 1.1f, ui);
-            }
             ui.clearShadowLayer();
 
             // Barras abajo: en una fila si el widget es chaparrito
@@ -2251,7 +2302,10 @@ final class Gadgets {
 
             // El pez
             float top = y0 + hs * 1.4f, areaH = barsTop - dp(2) - top, areaW = x1 - x0;
+            float sTs = Math.max(dp(8), Math.min(dp(11), areaH * 0.14f)), floorY = top + areaH;
+            areaH -= sTs * 1.2f;
             if (areaH < dp(10) || areaW < dp(20)) return;
+            scenery(c, x0, x1, top, floorY, sTs, up);
             Pez look = p != null ? p : BLANK;
             int n = 3 + look.fat, len = 7 + n;
             String eye = asleep ? "-" : p == null ? "°" : food < 20 ? "@" : happy > 75 ? "^" : happy < 25 ? ";" : "°";
@@ -2262,24 +2316,76 @@ final class Gadgets {
             fish.setTextSize(ts);
             float cw = adv * ts, fw = len * cw;
             float travel = Math.max(0, areaW - fw);
-            long period = asleep ? 60_000 : 16_000;
-            int dir = still ? -1 : dirAt(up, period);
-            float left = x0 + travel * (still ? 0.5f : posAt(up, period));
-            float bob = still ? 0 : (float) Math.sin(up / 1000.0 * (asleep ? 1.1 : 2.4)) * cw * 0.22f;
-            float base = top + areaH * 0.5f + ts * 0.62f + bob;
+            float tSec = up / 1000f, dens = getResources().getDisplayMetrics().density;
+            float midY = top + areaH * 0.5f + ts * 0.62f, lowY = Math.max(midY, top + areaH - ts * 0.35f);
+            // Despierto nada de orilla a orilla; dormido baja al fondo y se mece despacio (velocidad 0.3)
+            float tx, ty, maxSp;
+            if (still) {
+                tx = x0 + travel * 0.5f;
+                ty = midY;
+                maxSp = 1e6f;
+            } else if (asleep) {
+                tx = x0 + travel * 0.5f + (float) Math.sin(tSec * 0.2) * Math.min(60 * dens, travel * 0.5f);
+                ty = lowY;
+                maxSp = 0.3f * dens;
+            } else {
+                tx = x0 + travel * posAt(up, 16_000);
+                ty = midY + (float) Math.sin(tSec * 2.4) * cw * 0.22f;
+                maxSp = 3f * dens;
+            }
+            float dt = lastUp == 0 ? 1f : Math.max(0.1f, Math.min(6f, (up - lastUp) / 16.7f));
+            lastUp = up;
+            if (Float.isNaN(fx) || still) {
+                fx = tx;
+                fy = ty;
+            }
+            float px0 = fx, py0 = fy, ddx = tx - fx, ddy = ty - fy, dist = (float) Math.hypot(ddx, ddy), step = maxSp * dt;
+            if (dist > step) {
+                fx += ddx / dist * step;
+                fy += ddy / dist * step;
+            } else {
+                fx = tx;
+                fy = ty;
+            }
+            fx = Math.max(x0, Math.min(x0 + travel, fx));
+            float movedX = fx - px0, moved = (float) Math.hypot(movedX, fy - py0);
+            // fish.v: la velocidad del último paso; si no se mueve, baja poco a poco
+            if (moved > 0.01f) fishV = moved / dt / dens;
+            else fishV *= (float) Math.pow(0.9, dt);
+            if (still) fdir = -1;
+            else if (movedX > 0.05f * dt) fdir = 1;
+            else if (movedX < -0.05f * dt) fdir = -1;
+            int dir = fdir;
+            float left = fx, base = fy;
             cells(dir, eye, look.fill, n);
             boolean rainbow = "rainbow".equalsIgnoreCase(look.color);
             int col = rainbow ? GREEN : color(look.color);
-            fish.setShadowLayer(ts * 0.35f, 0, 0, col);
-            for (int i = 0; i < len; i++) {
-                int ci = col;
-                if (rainbow) {
-                    hsv[0] = ((up / 1000f) * 70f + i * 26f) % 360f;
-                    ci = Color.HSVToColor(hsv);
-                    fish.setShadowLayer(ts * 0.35f, 0, 0, ci);
+            if (fishGlow == null || glowCol != col) {
+                glowCol = col;
+                fishGlow = new RadialGradient(0, 0, 1f, Ui.alpha(col, 0x40), Ui.alpha(col, 0), Shader.TileMode.CLAMP);
+            }
+            glowM.setScale(fw * 0.7f, ts * 1.2f);
+            glowM.postTranslate(left + fw / 2f, base - ts * 0.35f);
+            fishGlow.setLocalMatrix(glowM);
+            glowP.setShader(fishGlow);
+            c.drawRect(left - fw * 0.25f, base - ts * 1.6f, left + fw * 1.25f, base + ts * 0.9f, glowP);
+            // Nado ondulado letra por letra: la onda nace en la cabeza y crece hacia la cola
+            // La fase se acumula (si no, al cambiar la velocidad brinca y el pez tiembla)
+            float dtS = dt * 0.0167f;
+            swimSv += (Math.min(1f, fishV / 2f) - swimSv) * Math.min(1f, dtS * 5f);
+            swimPh = (swimPh + dtS * (3f + swimSv * 11f)) % (float) (Math.PI * 200);
+            float amp = still ? 0 : (1.1f + swimSv * 2.6f) * ts / 28f;
+            for (int pass = 0; pass < 2; pass++) {
+                if (pass == 1) fish.clearShadowLayer();
+                for (int i = 0; i < len; i++) {
+                    int kk = dir < 0 ? i : len - 1 - i;
+                    float w = kk / (float) (len - 1);
+                    float yo = (float) Math.sin(swimPh - kk * 0.6f) * amp * (0.15f + w * 0.9f);
+                    int ci = rainbow ? hsl((tSec * 90f + i * 28f) % 360f, 1f, 0.62f) : col;
+                    if (pass == 0) fish.setShadowLayer(ts * 0.35f, 0, 0, ci);
+                    fish.setColor(ci);
+                    c.drawText(cells[i], left + cw * (i + 0.5f), base + yo, fish);
                 }
-                fish.setColor(ci);
-                c.drawText(cells[i], left + cw * (i + 0.5f), base, fish);
             }
             fish.clearShadowLayer();
 
@@ -2293,10 +2399,10 @@ final class Gadgets {
             if (seen) {
                 if (wantGreet) {
                     wantGreet = false;
-                    speak(PezTalk.greet(act, food));
-                    nextChat = up + 18_000 + (long) (Math.random() * 20_000);
+                    speak(PezTalk.greet(act, food, happy));
+                    nextChat = up + 25_000 + (long) (Math.random() * 20_000);
                 } else if (up >= nextChat && up > sayUntil) {
-                    nextChat = up + 18_000 + (long) (Math.random() * 20_000);
+                    nextChat = up + 25_000 + (long) (Math.random() * 20_000);
                     String duo = PezTalk.duoAlert(act, seenDuo);
                     if (duo != null) {
                         seenDuo = PezTalk.duoAlertAt;
@@ -2307,17 +2413,19 @@ final class Gadgets {
                 }
             }
 
-            // Burbujas que salen de la boca (o zetas si está dormido)
-            if (!still) {
+            // Dormido le salen zetas de la cabeza
+            if (!still && asleep) {
                 long per = asleep ? 3600 : 2600;
                 for (int b = 0; b < 3; b++) {
                     long age = Math.floorMod(up + b * per / 3, per);
                     float a = age / (float) per;
-                    long born = up - age;
-                    int bd = dirAt(born, period);
-                    float bl = x0 + travel * posAt(born, period);
-                    float mouth = bd > 0 ? bl + fw : bl;
-                    float bx = mouth + bd * cw * 0.4f + (float) Math.sin(a * 6.0 + b) * cw * 0.3f;
+                    // Cada burbuja nace en la boca y ahí se queda; ya no sigue al pez
+                    long cycle = Math.floorDiv(up + b * per / 3, per);
+                    if (cycle != bubN[b]) {
+                        bubN[b] = cycle;
+                        bubX[b] = (dir > 0 ? left + fw : left) + dir * cw * 0.4f;
+                    }
+                    float bx = bubX[b] + (float) Math.sin(a * 6.0 + b) * cw * 0.3f;
                     float by = base - ts * 0.45f - a * areaH * 0.55f;
                     if (by < top) continue;
                     int alpha = (int) (0xAA * (1f - a));
@@ -2337,6 +2445,58 @@ final class Gadgets {
                 ui.setStyle(Paint.Style.FILL);
             }
             if (say != null && up < sayUntil) drawSay(c, L, T, W, H, headX, base - ts * 1.55f, base + ts * 0.35f);
+        }
+
+        private static final String SAND = ".,:;·";
+        private static final float[] PLANTS = {0.06f, 0.16f, 0.92f};
+        private static final int[] PLANT_H = {4, 3, 5};
+
+        /** Arena de puntitos, plantitas ( ) que se mecen y el cofre [$$$] con burbujas, como en la página. */
+        private void scenery(Canvas c, float x0, float x1, float top, float floorY, float sTs, long up) {
+            float tS = up / 1000f, wdt = x1 - x0;
+            ui.setStyle(Paint.Style.FILL);
+            ui.setTextSize(sTs);
+            ui.clearShadowLayer();
+            float scw = ui.measureText("0");
+            int cols = Math.max(1, (int) (wdt / scw));
+            if (sandRow == null || sandRow.length() != cols) {
+                Random rr = new Random(7);
+                StringBuilder sb = new StringBuilder(cols);
+                for (int i = 0; i < cols; i++) sb.append(SAND.charAt(rr.nextInt(SAND.length())));
+                sandRow = sb.toString();
+            }
+            ui.setTextAlign(Paint.Align.LEFT);
+            ui.setColor(0xFFB89F6A);
+            c.drawText(sandRow, x0, floorY, ui);
+            // Plantitas: se mecen más arriba que abajo
+            ui.setTextAlign(Paint.Align.CENTER);
+            ui.setColor(Ui.alpha(GREEN, 0xCC));
+            int room = Math.max(1, (int) ((floorY - top) * 0.55f / (sTs * 0.9f)));
+            for (int j = 0; j < PLANTS.length; j++) {
+                float px = x0 + wdt * PLANTS[j];
+                int rows = Math.min(PLANT_H[j], room);
+                for (int rw = 0; rw < rows; rw++) {
+                    float sway = still ? 0 : (float) Math.sin(tS * 1.3 + j * 1.7 + rw * 0.5) * scw * 0.4f * (rw + 1) / rows;
+                    c.drawText(rw % 2 == 0 ? "(" : ")", px + sway, floorY - sTs * 0.9f * (rw + 1), ui);
+                }
+            }
+            // Cofre dorado
+            float chestX = x0 + wdt * 0.72f, chestY = floorY - sTs * 0.9f;
+            ui.setColor(0xFFFFD54A);
+            ui.setShadowLayer(sTs * 0.6f, 0, 0, 0x88FFD54A);
+            c.drawText("[$$$]", chestX, chestY, ui);
+            ui.clearShadowLayer();
+            // Burbujas ° o O que suben desde el cofre
+            if (still) return;
+            float rise = chestY - sTs - top;
+            for (int b = 0; b < 4; b++) {
+                long per = 4200;
+                float a = Math.floorMod(up + b * per / 4, per) / (float) per;
+                float by = chestY - sTs - a * rise;
+                float bx = chestX + (float) Math.sin(a * 7 + b * 2) * scw * 0.8f;
+                ui.setColor(Ui.alpha(0xFFBFF6FF, (int) (0xB0 * (1f - a))));
+                c.drawText(a < 0.33f ? "°" : a < 0.66f ? "o" : "O", bx, by, ui);
+            }
         }
 
         /** Burbuja blanca con texto oscuro y colita hacia el pez; arriba de él, o abajo si no cabe. */
