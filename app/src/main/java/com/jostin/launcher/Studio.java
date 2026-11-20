@@ -264,16 +264,29 @@ final class Studio {
             Prefs.setHomeLocked(a, v);
             h.applyHome();
         }));
-        col.addView(Ctl.section(a, "Cajón de apps"));
-        int n = Prefs.hidden(a).size();
-        col.addView(Ctl.action(a, Icons.EYE, "Apps ocultas", n == 0 ? "Ninguna" : String.valueOf(n), v -> h.showHiddenApps()));
-        TextView hiddenTip = Ui.text(a, "Las apps ocultas no salen en la lista del cajón, pero sí al buscarlas. Desde aquí las vuelves a mostrar.", 12, Ui.MUTED, Ui.REGULAR);
-        hiddenTip.setLineSpacing(0, 1.2f);
-        hiddenTip.setPadding(Ui.dp(a, 4), Ui.dp(a, 10), 0, Ui.dp(a, 4));
-        col.addView(hiddenTip);
         col.addView(Ctl.section(a, "Copias de seguridad"));
         col.addView(Ctl.action(a, Icons.HISTORY, "Restaurar una copia", String.valueOf(Safety.tags(a).size()), v -> h.restoreHome()));
         col.addView(Ctl.action(a, Icons.TRASH, "Empezar de cero", null, v -> h.resetHome()));
+        int n = Prefs.hidden(a).size();
+        col.addView(Ctl.action(a, Icons.SHAPES, "Apps ocultas", n == 0 ? "Ninguna" : String.valueOf(n), v -> h.showHiddenApps()));
+        // Respaldo en un archivo tuyo (Drive incluido), actualizaciones y el registro para reportar fallas
+        col.addView(Ctl.section(a, "Jostin OS"));
+        col.addView(Ctl.action(a, Icons.HISTORY, "Buscar actualización", Updater.status(a), v -> Updater.ask(a, h.backdrop())));
+        col.addView(Ctl.action(a, Icons.HISTORY, "Tiempo en pantalla", "Hoy y límites", v -> {
+            if (a instanceof MainActivity) AppUsage.panel((MainActivity) a);
+        }));
+        col.addView(Ctl.action(a, Icons.CHECK, "Guardar configuración", "Archivo .json", v -> Backup.export(a)));
+        col.addView(Ctl.action(a, Icons.SWAP, "Cargar configuración", null, v -> Backup.pick(a)));
+        col.addView(Ctl.action(a, Icons.INFO, "Ver / compartir registro", "Errores y trabones", v -> Sheet.show(a, h.backdrop(), "Registro",
+                Sheet.item("Compartir registro", Icons.SWAP, () -> Bitacora.share(a)),
+                Sheet.item("Borrar registro", Icons.TRASH, () -> {
+                    Bitacora.clear();
+                    Sheet.pill(a, h.backdrop(), "Registro borrado");
+                }).danger())));
+        TextView tip = Ui.text(a, "La configuración lleva tus widgets, el dock, el fondo y tus ajustes; las fotos se quedan en el teléfono. El registro solo sale si tú lo compartes.", 12, Ui.MUTED, Ui.REGULAR);
+        tip.setLineSpacing(0, 1.2f);
+        tip.setPadding(Ui.dp(a, 4), Ui.dp(a, 10), 0, Ui.dp(a, 4));
+        col.addView(tip);
     }
 
     // ---------- Íconos ----------
@@ -384,18 +397,41 @@ final class Studio {
 
     // ---------- Gestos ----------
 
+    /** Si eligieron "Abrir una app" y todavía no hay app, se pide. */
+    private static void gestureApp(Activity a, boolean wantsApp) {
+        if (wantsApp && Prefs.sp(a).getString("g_app", null) == null && a instanceof MainActivity) ((MainActivity) a).pickGestureApp();
+    }
+
     private static void gestures(Activity a, Host h, LinearLayout col) {
         col.addView(Ctl.section(a, "Deslizar hacia arriba"));
         col.addView(Ctl.chips(a, new String[]{"Cajón de apps", "Buscar", "Nada"}, Prefs.gUp(a), v -> Prefs.setGUp(a, v)));
         col.addView(Ctl.section(a, "Deslizar hacia abajo"));
-        col.addView(Ctl.chips(a, new String[]{"Barra de Android", "Nada"}, Prefs.gDown(a) == 2 ? 1 : 0, v -> Prefs.setGDown(a, v == 1 ? 2 : 1)));
+        col.addView(Ctl.chips(a, MainActivity.GESTURES, MainActivity.downAct(a), v -> {
+            Prefs.sp(a).edit().putInt("g_down_act", v).apply();
+            gestureApp(a, v == 5);
+        }));
         col.addView(Ctl.section(a, "Doble toque"));
-        col.addView(Ctl.chips(a, new String[]{"Bloquear pantalla", "Linterna", "Otro fondo", "Nada"}, Prefs.gDouble(a), v -> Prefs.setGDouble(a, v)));
+        col.addView(Ctl.chips(a, new String[]{"Bloquear pantalla", "Linterna", "Otro fondo", "Nada", "Notificaciones", "Cajón", "Buscador", "Abrir una app"},
+                Prefs.gDouble(a), v -> {
+                    Prefs.setGDouble(a, v);
+                    gestureApp(a, v == 7);
+                }));
         if (LockService.instance == null) {
             View gap = new View(a);
             col.addView(gap, new LinearLayout.LayoutParams(1, Ui.dp(a, 10)));
             col.addView(Ctl.action(a, Widgets.LOCK, "Activar bloqueo con doble toque", "Permiso", v -> h.requestLock()));
         }
+        col.addView(Ctl.section(a, "Deslizar con dos dedos"));
+        col.addView(Ctl.chips(a, MainActivity.GESTURES, Prefs.sp(a).getInt("g_two", 0), v -> {
+            Prefs.sp(a).edit().putInt("g_two", v).apply();
+            gestureApp(a, v == 5);
+        }));
+        String gp = Prefs.sp(a).getString("g_app", null);
+        View gapp = new View(a);
+        col.addView(gapp, new LinearLayout.LayoutParams(1, Ui.dp(a, 10)));
+        col.addView(Ctl.action(a, Icons.HOME, "App que abren los gestos", gp == null ? "Elegir" : IconEngine.label(a, gp), v -> {
+            if (a instanceof MainActivity) ((MainActivity) a).pickGestureApp();
+        }));
         col.addView(Ctl.section(a, "Mantener presionado un espacio vacío"));
         col.addView(Ctl.chips(a, new String[]{"Menú", "Editar inicio", "Personalizar"}, Prefs.gLong(a), v -> Prefs.setGLong(a, v)));
     }

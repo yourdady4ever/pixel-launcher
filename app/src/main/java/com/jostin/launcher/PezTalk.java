@@ -30,6 +30,20 @@ final class PezTalk {
     static JSONObject appsPc, appsCel;
     /** Cuándo llegó un aviso de racha de Duolingo (solo se guarda la hora, nada del texto). */
     static volatile long duoAlertAt = 0;
+    /** Última notificación importante: solo la hora y el nombre de la app, nunca lo que dice. */
+    static volatile long notifAt = 0;
+    static volatile String notifApp = "";
+    private static long notifCool, battCool, plugAt;
+    private static String limitApp;
+    private static int limitMin, limitMax;
+
+    /** Te pasaste del límite que le pusiste a una app: lo dice en cuanto se vea. */
+    static void limitOver(String app, int min, int limit) {
+        limitApp = app;
+        limitMin = min;
+        limitMax = limit;
+    }
+    private static int battPct = -1, plugged = -1;
 
     private PezTalk() {}
 
@@ -145,13 +159,72 @@ final class PezTalk {
         sp().edit().putLong("greet_at", now).apply();
         int h = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
         if (food < 30) return "¡Volviste! Tengo un hambre… 🍤";
+        // En la mañana, a veces con el clima que ya tiene el widget del clima
+        Weather.Now w = Weather.cached(c);
+        if (h >= 5 && h < 12 && w != null && R.nextDouble() < .6) {
+            List<String> out = new ArrayList<>();
+            String sky = Weather.describe(w.code).toLowerCase(new Locale("es", "MX"));
+            for (String x : get(c, "weatherMorning")) out.add(x.replace("{t}", String.valueOf(w.temp)).replace("{cielo}", sky));
+            return pickFresh(out);
+        }
         return pickFresh(get(c, h < 5 ? "lateNight" : h < 12 ? "morning" : h < 19 ? "afternoon" : "evening"));
+    }
+
+    /** Lee la batería (sin quedarse escuchando); si acabas de conectar el cargador lo anota. */
+    static void pollBattery(Context c) {
+        try {
+            android.content.Intent b = c.registerReceiver(null, new android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED));
+            if (b == null) return;
+            int lv = b.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1), sc = b.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, 100);
+            int pl = b.getIntExtra(android.os.BatteryManager.EXTRA_PLUGGED, 0) != 0 ? 1 : 0;
+            if (plugged == 0 && pl == 1) plugAt = System.currentTimeMillis();
+            plugged = pl;
+            battPct = lv < 0 || sc <= 0 ? -1 : lv * 100 / sc;
+        } catch (Exception ignored) {
+            // sin datos de batería
+        }
+    }
+
+    /** Lo que vale la pena decir ya: cargador recién conectado o una notificación importante. */
+    static String urgent(Context c) {
+        long now = System.currentTimeMillis();
+        if (plugAt > 0) {
+            boolean fresh = now - plugAt < 60_000;
+            plugAt = 0;
+            if (fresh) return pickFresh(get(c, "charging"));
+        }
+        if (limitApp != null) {
+            List<String> out = new ArrayList<>();
+            for (String x : get(c, "limitOver")) out.add(x.replace("{app}", limitApp).replace("{t}", fmtMin(limitMin)).replace("{l}", fmtMin(limitMax)));
+            limitApp = null;
+            return pickFresh(out);
+        }
+        if (notifAt > 0 && now - notifAt < 60_000 && now > notifCool && !notifApp.isEmpty()) {
+            notifAt = 0;
+            notifCool = now + 3 * 60_000L;
+            List<String> out = new ArrayList<>();
+            for (String x : get(c, "notif")) out.add(x.replace("{app}", notifApp));
+            return pickFresh(out);
+        }
+        return null;
+    }
+
+    /** Batería baja (menos de 15 % y sin cargar), cuando mucho cada 10 min. */
+    private static String battLine(Context c) {
+        long now = System.currentTimeMillis();
+        if (battPct >= 0 && battPct < 15 && plugged == 0 && now > battCool) {
+            battCool = now + 10 * 60_000L;
+            return pickFresh(get(c, "battLow"));
+        }
+        return null;
     }
 
     static String chatter(Context c, float food, float happy) {
         int h = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
         if (sleeping()) return pickFresh(get(c, "night"));
         if (food < 10) return pickFresh(get(c, "starving"));
+        String batt = battLine(c);
+        if (batt != null) return batt;
         if (food < 30 && R.nextDouble() < .45) return pickFresh(get(c, "hungry"));
         if (happy < 30 && R.nextDouble() < .4) return pickFresh(get(c, "bored"));
         if (T() > appCool) {

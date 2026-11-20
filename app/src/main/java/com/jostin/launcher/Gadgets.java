@@ -223,6 +223,7 @@ final class Gadgets {
             }
             g.build();
         } catch (Throwable t) {
+            Bitacora.error("crear widget " + it.type, t);
             g = new ErrorG(a, it);
             g.build();
         }
@@ -267,6 +268,7 @@ final class Gadgets {
                 removeAllViews();
                 build();
             } catch (Throwable t) {
+                Bitacora.error("rehacer widget " + item.type, t);
                 removeAllViews();
                 addView(text("Este widget tuvo un error", 13, Ui.MUTED, Ui.REGULAR));
             }
@@ -1986,6 +1988,8 @@ final class Gadgets {
         private final long[] bubN = {-1, -1, -1};
         private boolean slow;
         private int hourNow = -1;
+        private long battAt;
+        private boolean paintFailed;
         // Brillos (se crean una vez y se reacomodan con una matriz, sin objetos nuevos por cuadro)
         private final Paint glowP = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final android.graphics.Matrix glowM = new android.graphics.Matrix();
@@ -2082,6 +2086,7 @@ final class Gadgets {
             Sheet.Item apps = Sheet.item("El pez y tus apps", Icons.EYE, () -> AppUsage.explain(act, backdrop));
             apps.value = () -> AppUsage.enabled(act) ? "Sí" : "No";
             out.add(apps);
+            out.add(Sheet.item("Tiempo en pantalla", Icons.HISTORY, () -> AppUsage.panel(act)));
             out.add(Sheet.item("Actualizar ahora", Icons.HISTORY, () -> {
                 fetchedAt = 0;
                 fetch();
@@ -2175,8 +2180,10 @@ final class Gadgets {
             boolean seen = isShown() && getGlobalVisibleRect(vis);
             try {
                 paint(c, seen);
-            } catch (Throwable ignored) {
-                // un dato raro no debe tumbar la pantalla de inicio
+            } catch (Throwable e) {
+                // un dato raro no debe tumbar la pantalla de inicio, pero se anota
+                if (!paintFailed) Bitacora.error("dibujar el pez", e);
+                paintFailed = true;
             }
             // Solo se anima mientras se ve; fuera de la pantalla revisa despacito por si vuelves
             if (started && seen) {
@@ -2396,7 +2403,15 @@ final class Gadgets {
             fishBox.set(left - cw, base - ts * 1.6f, left + fw + cw, base + ts * 0.4f);
 
             // Habla: saluda al verse y luego platica solo cada 18 a 38 s mientras está a la vista
-            if (seen) {
+            if (seen && up - battAt > 5000) {
+                battAt = up;
+                PezTalk.pollBattery(act);
+            }
+            String now0 = seen && !asleep && up > sayUntil ? PezTalk.urgent(act) : null;
+            if (now0 != null) {
+                speak(now0);
+                nextChat = Math.max(nextChat, up + 20_000);
+            } else if (seen) {
                 if (wantGreet) {
                     wantGreet = false;
                     speak(PezTalk.greet(act, food, happy));

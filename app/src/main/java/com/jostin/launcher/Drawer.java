@@ -48,8 +48,6 @@ class Drawer extends FrameLayout {
         void closeDrawer();
         void appActions(App app, View from);
 
-        /** La lista para volver a mostrar las apps ocultas (en el selector del dock no hace falta). */
-        default void showHiddenApps() {}
     }
 
     static final class App {
@@ -60,6 +58,8 @@ class Drawer extends FrameLayout {
         Drawable badged;
         /** Del espacio privado (también tiene perfil, pero no se pausa: se bloquea). */
         boolean priv;
+        /** La categoría que la app dice tener (ApplicationInfo.category). */
+        int cat = -1;
 
         App(String label, String pkg) {
             this(label, pkg, null, null);
@@ -133,7 +133,9 @@ class Drawer extends FrameLayout {
             for (ResolveInfo ri : list) {
                 String pkg = ri.activityInfo.packageName;
                 if (pkg.equals(app.getPackageName()) || !seen.add(pkg)) continue;
-                out.add(new App(String.valueOf(ri.loadLabel(pm)), pkg));
+                App ax = new App(String.valueOf(ri.loadLabel(pm)), pkg);
+                ax.cat = ri.activityInfo.applicationInfo.category;
+                out.add(ax);
             }
             Collator col = Collator.getInstance(MainActivity.ES);
             Collections.sort(out, (x, y) -> col.compare(x.label, y.label));
@@ -226,11 +228,11 @@ class Drawer extends FrameLayout {
     private final Host host;
     private final boolean pick;
     private final List<App> all = new ArrayList<>();
-    /** Las que ocultaste: no salen en la lista, pero sí al buscarlas (un poco apagadas). */
-    private final List<App> hiddenApps = new ArrayList<>();
-    private final Set<String> hiddenSet = new java.util.HashSet<>();
-    private final View hiddenRow;
-    private final TextView hiddenText;
+    private final View catChips;
+    private int cat = 0;
+    /** Resultados extra al buscar: cuentas, ajustes del sistema y contactos. */
+    private final LinearLayout extras;
+    private String lastQuery = "";
     private final List<App> work = new ArrayList<>();
     private final List<App> shown = new ArrayList<>();
     private final Segmented tabs;
@@ -312,11 +314,28 @@ class Drawer extends FrameLayout {
         tl.topMargin = Ui.dp(a, 12);
         column.addView(tabs, tl);
 
+        // Filtros por tipo de app (automáticos, y se pueden cambiar a mano en cada app)
+        catChips = Ctl.chips(a, CATS, 0, k -> {
+            cat = k;
+            filter(true);
+        });
+        LinearLayout.LayoutParams ccl = new LinearLayout.LayoutParams(-1, -2);
+        ccl.topMargin = Ui.dp(a, 10);
+        column.addView(catChips, ccl);
+        catChips.setVisibility(pickMode ? GONE : VISIBLE);
+
         empty = Ui.text(a, "", 15, Ui.MUTED, Ui.REGULAR);
         empty.setGravity(Gravity.CENTER);
         empty.setPadding(0, Ui.dp(a, 30), 0, Ui.dp(a, 10));
         empty.setVisibility(GONE);
         column.addView(empty, new LinearLayout.LayoutParams(-1, -2));
+
+        extras = new LinearLayout(a);
+        extras.setOrientation(LinearLayout.VERTICAL);
+        extras.setVisibility(GONE);
+        LinearLayout.LayoutParams exl = new LinearLayout.LayoutParams(-1, -2);
+        exl.topMargin = Ui.dp(a, 8);
+        column.addView(extras, exl);
 
         LinearLayout web = new LinearLayout(a);
         web.setGravity(Gravity.CENTER_VERTICAL);
@@ -365,29 +384,6 @@ class Drawer extends FrameLayout {
         suggestRow.setPadding(0, Ui.dp(a, 16), 0, Ui.dp(a, 4));
         column.addView(suggestRow, new LinearLayout.LayoutParams(-1, -2));
 
-        // Aviso discreto de cuántas apps ocultaste; al tocarlo salen para volver a mostrarlas
-        LinearLayout hr = new LinearLayout(a);
-        hr.setGravity(Gravity.CENTER_VERTICAL);
-        hr.setPadding(Ui.dp(a, 6), Ui.dp(a, 10), Ui.dp(a, 6), Ui.dp(a, 4));
-        ImageView hri = new ImageView(a);
-        Icons.Line hrd = Icons.of(Icons.EYE);
-        hrd.setColor(Ui.MUTED);
-        hri.setImageDrawable(hrd);
-        hr.addView(hri, new LinearLayout.LayoutParams(Ui.dp(a, 18), Ui.dp(a, 18)));
-        hiddenText = Ui.text(a, "", 13, Ui.MUTED, Ui.MEDIUM);
-        LinearLayout.LayoutParams htl = new LinearLayout.LayoutParams(0, -2, 1f);
-        htl.leftMargin = Ui.dp(a, 8);
-        hr.addView(hiddenText, htl);
-        hr.addView(Ui.text(a, "Ver", 13, Theme.accent, Ui.SEMIBOLD));
-        Ui.pressable(hr, 0.97f);
-        hr.setOnClickListener(v -> {
-            Sound.play(v, Sound.TAP);
-            Sheet.hideKeyboard(act, search);
-            host.showHiddenApps();
-        });
-        hr.setVisibility(GONE);
-        hiddenRow = hr;
-        column.addView(hr, new LinearLayout.LayoutParams(-1, -2));
 
         // Espacio privado: bloqueado solo se ve el candado; desbloqueado, sus apps en una fila
         LinearLayout pb = new LinearLayout(a);
@@ -478,14 +474,8 @@ class Drawer extends FrameLayout {
     void load(boolean animate) {
         apps(act, list -> {
             all.clear();
-            hiddenApps.clear();
             Set<String> hidden = Prefs.hidden(act);
-            hiddenSet.clear();
-            hiddenSet.addAll(hidden);
-            for (App x : list) {
-                if (showHidden || !hidden.contains(x.pkg)) all.add(x);
-                else hiddenApps.add(x);
-            }
+            for (App x : list) if (showHidden || !hidden.contains(x.pkg)) all.add(x);
             // Al elegir una app para el dock no salen las de trabajo: el dock guarda solo el paquete
             work.clear();
             boolean hasWork = !pick && !WorkApps.profiles(act).isEmpty();
@@ -546,19 +536,18 @@ class Drawer extends FrameLayout {
         String q = strip(search.getText().toString().trim());
         boolean workTab = tabs.getVisibility() == VISIBLE && tabs.selected() == 1;
         shown.clear();
+        catChips.setVisibility(!pick && q.isEmpty() && !workTab ? VISIBLE : GONE);
         if (q.isEmpty()) {
-            shown.addAll(workTab ? work : all);
+            if (workTab) shown.addAll(work);
+            else if (cat == 0 || pick) shown.addAll(all);
+            else for (App x : all) if (catOf(act, x) == cat) shown.add(x);
         } else {
             // Al buscar salen todas; la de trabajo se distingue por su maletín. Las privadas solo si está desbloqueado
             for (App x : all) if (x.key.contains(q)) shown.add(x);
             for (App x : work) if (x.key.contains(q)) shown.add(x);
             for (App x : priv) if (x.key.contains(q)) shown.add(x);
-            // Las ocultas también salen al buscarlas, para que nunca se pierdan
-            for (App x : hiddenApps) if (x.key.contains(q)) shown.add(x);
         }
-        int nh = hiddenApps.size();
-        hiddenRow.setVisibility(q.isEmpty() && !pick && !workTab && nh > 0 ? VISIBLE : GONE);
-        hiddenText.setText(nh == 1 ? "1 app oculta" : nh + " apps ocultas");
+        fillExtras(q, search.getText().toString().trim());
         // Espacio privado: bloqueado no se ve; para abrirlo se busca "privado", como en Pixel
         boolean askPrivate = q.contains("privad") || q.contains("private");
         boolean showPrivate = hasPrivate && !workTab && (privLocked ? askPrivate : q.isEmpty() || askPrivate);
@@ -566,7 +555,7 @@ class Drawer extends FrameLayout {
         boolean noWork = workTab && q.isEmpty() && work.isEmpty();
         empty.setVisibility(none || noWork ? VISIBLE : GONE);
         empty.setText(noWork ? (workPaused ? "Tus apps de trabajo están en pausa" : "No hay apps de trabajo") : "No encontré esa app");
-        webRow.setVisibility(none && !pick ? VISIBLE : GONE);
+        webRow.setVisibility(!q.isEmpty() && !pick ? VISIBLE : GONE);
         webText.setText("Buscar «" + search.getText().toString().trim() + "» en internet");
         workRow.setVisibility(workTab && q.isEmpty() ? VISIBLE : GONE);
         workText.setText(workPaused ? "Reanudar apps de trabajo" : "Pausar apps de trabajo");
@@ -621,6 +610,192 @@ class Drawer extends FrameLayout {
             return true;
         });
         return cell;
+    }
+
+    static final int REQ_CONTACTS = 410;
+
+    static final String[] CATS = {"Todas", "Juegos", "Redes", "Fotos y video", "Música", "Estudio", "Herramientas"};
+    private static final String[] STUDY = {"duolingo", "classroom", "notion", "khan", "quizlet", "photomath", "brainly", "canvas",
+            "chegg", "docs", "office", "teams", "keep", "anki", "symbolab", "geogebra", "wolfram", "busuu", "babbel", "moodle"};
+    private static org.json.JSONObject manual;
+
+    private static org.json.JSONObject manual(Context c) {
+        if (manual == null) {
+            try {
+                manual = new org.json.JSONObject(Prefs.sp(c).getString("app_cats", "{}"));
+            } catch (Exception e) {
+                manual = new org.json.JSONObject();
+            }
+        }
+        return manual;
+    }
+
+    /** 0 = automática. */
+    static int manualCat(Context c, String pkg) {
+        return manual(c).optInt(pkg, 0);
+    }
+
+    static void setManualCat(Context c, String pkg, int k) {
+        org.json.JSONObject m = manual(c);
+        try {
+            if (k <= 0) m.remove(pkg);
+            else m.put(pkg, k);
+        } catch (Exception ignored) {
+            // nada
+        }
+        Prefs.sp(c).edit().putString("app_cats", m.toString()).apply();
+    }
+
+    static int catOf(Context c, App x) {
+        int m = manualCat(c, x.pkg);
+        if (m > 0) return m;
+        String p = x.pkg.toLowerCase(MainActivity.ES);
+        for (String s : STUDY) if (p.contains(s)) return 5;
+        switch (x.cat) {
+            case android.content.pm.ApplicationInfo.CATEGORY_GAME: return 1;
+            case android.content.pm.ApplicationInfo.CATEGORY_SOCIAL:
+            case android.content.pm.ApplicationInfo.CATEGORY_NEWS: return 2;
+            case android.content.pm.ApplicationInfo.CATEGORY_IMAGE:
+            case android.content.pm.ApplicationInfo.CATEGORY_VIDEO: return 3;
+            case android.content.pm.ApplicationInfo.CATEGORY_AUDIO: return 4;
+            case android.content.pm.ApplicationInfo.CATEGORY_PRODUCTIVITY: return 5;
+            default: return 6;
+        }
+    }
+
+    /** Atajos a ajustes de Android: nombre, palabras con que se encuentra y a dónde lleva. */
+    private static final String[][] SETTINGS = {
+            {"Wi-Fi", "wifi internet red inalambrica", android.provider.Settings.ACTION_WIFI_SETTINGS},
+            {"Bluetooth", "bluetooth audifonos bocina", android.provider.Settings.ACTION_BLUETOOTH_SETTINGS},
+            {"Batería", "bateria pila carga ahorro", Intent.ACTION_POWER_USAGE_SUMMARY},
+            {"Pantalla", "pantalla brillo tema oscuro", android.provider.Settings.ACTION_DISPLAY_SETTINGS},
+            {"Sonido", "sonido volumen tono vibracion", android.provider.Settings.ACTION_SOUND_SETTINGS},
+            {"Apps", "apps aplicaciones permisos", android.provider.Settings.ACTION_APPLICATION_SETTINGS},
+            {"Notificaciones", "notificaciones avisos", "android.settings.NOTIFICATION_SETTINGS"},
+            {"Ubicación", "ubicacion gps localizacion", android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS},
+            {"Datos móviles", "datos red movil sim", android.provider.Settings.ACTION_DATA_ROAMING_SETTINGS},
+            {"Modo avión", "avion vuelo", android.provider.Settings.ACTION_AIRPLANE_MODE_SETTINGS},
+            {"Almacenamiento", "almacenamiento memoria espacio", android.provider.Settings.ACTION_INTERNAL_STORAGE_SETTINGS},
+            {"No molestar", "no molestar silencio", "android.settings.ZEN_MODE_SETTINGS"},
+            {"Seguridad", "seguridad bloqueo huella contrasena", android.provider.Settings.ACTION_SECURITY_SETTINGS},
+            {"Fecha y hora", "fecha hora reloj", android.provider.Settings.ACTION_DATE_SETTINGS},
+            {"Idioma y teclado", "idioma teclado", android.provider.Settings.ACTION_LOCALE_SETTINGS},
+            {"Ajustes", "ajustes configuracion settings", android.provider.Settings.ACTION_SETTINGS}};
+
+    private static String[] settingsKeys;
+
+    /** Cuenta rápida arriba, atajos a ajustes y contactos (el permiso se pide solo si lo usas). */
+    private void fillExtras(String q, String raw) {
+        extras.removeAllViews();
+        lastQuery = q;
+        if (pick || q.isEmpty()) {
+            extras.setVisibility(GONE);
+            return;
+        }
+        // Cuenta: solo si parece operación (números y algún signo)
+        if (raw.matches(".*\\d.*") && raw.matches(".*[-+*/×÷^%(].*")) {
+            try {
+                double v = Expr.eval(raw.replace('×', '*').replace('÷', '/').replace(',', '.'), false, 0);
+                String res = Expr.format(v);
+                extras.addView(extraRow(Icons.CALC, "= " + res, "Toca para copiar", () -> {
+                    android.content.ClipboardManager cm = (android.content.ClipboardManager) act.getSystemService(Context.CLIPBOARD_SERVICE);
+                    if (cm != null) cm.setPrimaryClip(android.content.ClipData.newPlainText("resultado", Expr.plain(v)));
+                    Sheet.pill(act, backdrop, "Copié " + res);
+                }));
+            } catch (Throwable ignored) {
+                // no era cuenta
+            }
+        }
+        if (q.length() >= 2) {
+            if (settingsKeys == null) {
+                settingsKeys = new String[SETTINGS.length];
+                for (int i = 0; i < SETTINGS.length; i++) settingsKeys[i] = strip(SETTINGS[i][0] + " " + SETTINGS[i][1]);
+            }
+            int found = 0;
+            for (int i = 0; i < SETTINGS.length && found < 2; i++) {
+                if (!settingsKeys[i].contains(q)) continue;
+                found++;
+                String action = SETTINGS[i][2];
+                extras.addView(extraRow(Icons.GEAR, SETTINGS[i][0], "Ajustes de Android", () -> openIntent(new Intent(action))));
+            }
+            contacts(q, raw);
+        }
+        extras.setVisibility(extras.getChildCount() > 0 ? VISIBLE : GONE);
+    }
+
+    private void contacts(String q, String raw) {
+        boolean granted = act.checkSelfPermission(android.Manifest.permission.READ_CONTACTS) == android.content.pm.PackageManager.PERMISSION_GRANTED;
+        if (!granted) {
+            if (Prefs.sp(act).getBoolean("contacts_no", false)) return;
+            extras.addView(extraRow(Icons.SEARCH, "Buscar «" + raw + "» en contactos", "Te pide permiso una vez", () -> {
+                Prefs.sp(act).edit().putBoolean("contacts_no", true).apply();
+                act.requestPermissions(new String[]{android.Manifest.permission.READ_CONTACTS}, REQ_CONTACTS);
+            }));
+            return;
+        }
+        Context app = act.getApplicationContext();
+        Gadgets.BG.execute(() -> {
+            List<String[]> found = new ArrayList<>();
+            String[] proj = {android.provider.ContactsContract.Contacts._ID, android.provider.ContactsContract.Contacts.LOOKUP_KEY,
+                    android.provider.ContactsContract.Contacts.DISPLAY_NAME_PRIMARY};
+            try (android.database.Cursor c = app.getContentResolver().query(android.provider.ContactsContract.Contacts.CONTENT_URI, proj,
+                    android.provider.ContactsContract.Contacts.DISPLAY_NAME_PRIMARY + " LIKE ?", new String[]{"%" + raw + "%"},
+                    android.provider.ContactsContract.Contacts.DISPLAY_NAME_PRIMARY + " ASC")) {
+                while (c != null && c.moveToNext() && found.size() < 3) found.add(new String[]{c.getString(0), c.getString(1), c.getString(2)});
+            } catch (Exception e) {
+                Bitacora.error("buscar contactos", e);
+            }
+            main.post(() -> {
+                if (!q.equals(lastQuery) || found.isEmpty()) return;
+                for (String[] x : found) {
+                    android.net.Uri uri = android.provider.ContactsContract.Contacts.getLookupUri(Long.parseLong(x[0]), x[1]);
+                    extras.addView(extraRow(Icons.HOME, x[2] == null ? "(Sin nombre)" : x[2], "Contacto", () -> openIntent(new Intent(Intent.ACTION_VIEW, uri))));
+                }
+                extras.setVisibility(VISIBLE);
+            });
+        });
+    }
+
+    /** El permiso de contactos llegó (o no): se vuelve a buscar lo mismo. */
+    void refresh() {
+        filter(false);
+    }
+
+    private void openIntent(Intent i) {
+        Sound.play(this, Sound.OPEN);
+        try {
+            act.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            postDelayed(host::closeDrawer, 300);
+        } catch (Exception e) {
+            Sheet.pill(act, backdrop, "Tu teléfono no tiene esa pantalla");
+        }
+    }
+
+    private View extraRow(Icons.Shape icon, String title, String sub, Runnable tap) {
+        LinearLayout r = new LinearLayout(act);
+        r.setGravity(Gravity.CENTER_VERTICAL);
+        int p = Ui.dp(act, 12);
+        r.setPadding(Ui.dp(act, 14), p, Ui.dp(act, 14), p);
+        r.setBackground(Ui.fill(act, 0x14FFFFFF, 18));
+        ImageView iv = new ImageView(act);
+        iv.setImageDrawable(Icons.of(icon));
+        r.addView(iv, new LinearLayout.LayoutParams(Ui.dp(act, 20), Ui.dp(act, 20)));
+        LinearLayout t = new LinearLayout(act);
+        t.setOrientation(LinearLayout.VERTICAL);
+        TextView a = Ui.text(act, title, 15, Ui.TEXT, Ui.MEDIUM);
+        a.setMaxLines(1);
+        a.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        t.addView(a);
+        t.addView(Ui.text(act, sub, 12, Ui.MUTED, Ui.REGULAR));
+        LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(0, -2, 1f);
+        tl.leftMargin = Ui.dp(act, 12);
+        r.addView(t, tl);
+        Ui.pressable(r, 0.97f);
+        r.setOnClickListener(v -> tap.run());
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.bottomMargin = Ui.dp(act, 6);
+        r.setLayoutParams(lp);
+        return r;
     }
 
     private void webSearch() {
@@ -833,9 +1008,8 @@ class Drawer extends FrameLayout {
                 }
                 IconEngine.clip(icon, x.pkg);
             }
-            // En pausa y las ocultas (al buscarlas) se ven apagadas
-            boolean dim = x.work() ? !x.priv && workPaused : hiddenSet.contains(x.pkg) && !showHidden;
-            cell.setAlpha(dim ? 0.45f : 1f);
+            // En pausa se ven apagadas
+            cell.setAlpha(x.work() && !x.priv && workPaused ? 0.45f : 1f);
             return cell;
         }
     }

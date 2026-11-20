@@ -185,6 +185,37 @@ class HomeView extends FrameLayout {
 
     // ==================== Vistas ====================
 
+    // ---------- Deslizar con dos dedos (gesto configurable) ----------
+    private boolean twoFinger, twoDone;
+    private float twoY0;
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent e) {
+        int a = e.getActionMasked();
+        if (a == MotionEvent.ACTION_POINTER_DOWN && e.getPointerCount() == 2 && !editing) {
+            twoFinger = true;
+            twoDone = false;
+            twoY0 = (e.getY(0) + e.getY(1)) / 2f;
+            // Lo que iba con un dedo se cancela para que no se mueva la página
+            MotionEvent c = MotionEvent.obtain(e);
+            c.setAction(MotionEvent.ACTION_CANCEL);
+            super.dispatchTouchEvent(c);
+            c.recycle();
+            return true;
+        }
+        if (twoFinger) {
+            if (a == MotionEvent.ACTION_MOVE && e.getPointerCount() >= 2 && !twoDone
+                    && Math.abs((e.getY(0) + e.getY(1)) / 2f - twoY0) > Ui.dp(act, 70)) {
+                twoDone = true;
+                performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+                act.twoFingerSwipe();
+            }
+            if (a == MotionEvent.ACTION_UP || a == MotionEvent.ACTION_CANCEL) twoFinger = false;
+            return true;
+        }
+        return super.dispatchTouchEvent(e);
+    }
+
     void populate() {
         for (View v : views.values()) {
             ViewGroup p = (ViewGroup) v.getParent();

@@ -16,6 +16,12 @@
     <uses-permission android:name="android.permission.ACCESS_HIDDEN_PROFILES" />
     <!-- Para que el pez sepa cuánto llevas en TikTok y si hiciste tu Duolingo; tú lo activas en Ajustes -->
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" />
+    <!-- Buscar actualización: Android siempre te pide confirmar la instalación -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Buscar contactos desde el cajón; se pide solo la primera vez que lo usas -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <!-- Huella o PIN para ver las apps ocultas -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
     <!-- Para poder ver y abrir las apps instaladas (Android 11+) -->
     <queries>
@@ -157,6 +163,9 @@
                 <action android:name="android.service.quicksettings.action.QS_TILE" />
             </intent-filter>
         </service>
+
+        <!-- Respuesta del instalador al actualizar Jostin OS -->
+        <receiver android:name=".Updater$Done" android:exported="false" />
 
         <!-- Protector de pantalla mientras carga -->
         <service

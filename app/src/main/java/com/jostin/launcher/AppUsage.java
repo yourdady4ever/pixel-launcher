@@ -49,7 +49,8 @@ final class AppUsage {
         public void run() {
             MAIN.removeCallbacks(this);
             if (app == null || !screenOn(app)) return;
-            if (enabled(app)) report(app);
+            // Se lee si hay permiso y algo que hacer con eso: compartir con el pez o vigilar un límite
+            if (granted(app) && (wanted(app) || limits(app).length() > 0)) report(app);
             MAIN.postDelayed(this, EVERY);
         }
     };
@@ -123,23 +124,15 @@ final class AppUsage {
                 UsageStatsManager usm = (UsageStatsManager) c.getSystemService(Context.USAGE_STATS_SERVICE);
                 if (usm == null) return;
                 long from = startOfDay(), now = System.currentTimeMillis();
-                UsageEvents evs = usm.queryEvents(from, now);
-                UsageEvents.Event e = new UsageEvents.Event();
-                long tiktokMs = 0, openAt = -1, duoLast = 0;
-                while (evs.hasNextEvent()) {
-                    evs.getNextEvent(e);
-                    String p = e.getPackageName();
-                    int type = e.getEventType();
-                    if (DUO.equals(p) && type == UsageEvents.Event.MOVE_TO_FOREGROUND) duoLast = e.getTimeStamp();
-                    if (!isTikTok(p)) continue;
-                    if (type == UsageEvents.Event.MOVE_TO_FOREGROUND) {
-                        if (openAt < 0) openAt = e.getTimeStamp();
-                    } else if (type == UsageEvents.Event.MOVE_TO_BACKGROUND && openAt >= 0) {
-                        tiktokMs += e.getTimeStamp() - openAt;
-                        openAt = -1;
-                    }
+                java.util.Map<String, Long> fg = new java.util.HashMap<>();
+                long duoLast = scan(usm, from, now, fg);
+                long tiktokMs = 0;
+                for (String t : TIKTOK) {
+                    Long v = fg.get(t);
+                    if (v != null) tiktokMs += v;
                 }
-                if (openAt >= 0) tiktokMs += now - openAt;
+                checkLimits(c, fg);
+                if (!wanted(c)) return;
                 // Si Duolingo avisó de la racha después de abrirlo, todavía no está hecha
                 boolean duo = duoLast >= from && duoLast > PezTalk.duoAlertAt;
                 JSONObject o = new JSONObject();
@@ -152,6 +145,160 @@ final class AppUsage {
                 // sin internet o sin permiso: se intenta en la siguiente vuelta
             }
         });
+    }
+
+    /** Suma el tiempo de hoy en primer plano por app; devuelve cuándo se abrió Duolingo por última vez. */
+    @SuppressWarnings("deprecation")
+    static long scan(UsageStatsManager usm, long from, long now, java.util.Map<String, Long> fg) {
+        UsageEvents evs = usm.queryEvents(from, now);
+        UsageEvents.Event e = new UsageEvents.Event();
+        java.util.Map<String, Long> open = new java.util.HashMap<>();
+        long duoLast = 0;
+        while (evs.hasNextEvent()) {
+            evs.getNextEvent(e);
+            String p = e.getPackageName();
+            int type = e.getEventType();
+            long ts = e.getTimeStamp();
+            if (type == UsageEvents.Event.MOVE_TO_FOREGROUND) {
+                if (DUO.equals(p)) duoLast = ts;
+                if (!open.containsKey(p)) open.put(p, ts);
+            } else if (type == UsageEvents.Event.MOVE_TO_BACKGROUND) {
+                Long st = open.remove(p);
+                if (st != null) fg.put(p, fg.getOrDefault(p, 0L) + ts - st);
+            }
+        }
+        for (java.util.Map.Entry<String, Long> en : open.entrySet()) fg.put(en.getKey(), fg.getOrDefault(en.getKey(), 0L) + now - en.getValue());
+        return duoLast;
+    }
+
+    // ---------- Límites (solo avisan, nunca bloquean) ----------
+
+    /** Aviso suave para cuando regreses a inicio. */
+    static volatile String notice;
+
+    static JSONObject limits(Context c) {
+        try {
+            return new JSONObject(Prefs.sp(c).getString("limits", "{}"));
+        } catch (Exception e) {
+            return new JSONObject();
+        }
+    }
+
+    static void setLimit(Context c, String pkg, int min) {
+        JSONObject o = limits(c);
+        try {
+            if (min <= 0) o.remove(pkg);
+            else o.put(pkg, min);
+        } catch (Exception ignored) {
+            // nada
+        }
+        Prefs.sp(c).edit().putString("limits", o.toString()).apply();
+        if (min > 0) kick(c);
+    }
+
+    private static void checkLimits(Context c, java.util.Map<String, Long> fg) {
+        JSONObject lim = limits(c);
+        if (lim.length() == 0) return;
+        String day = new java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US).format(new java.util.Date());
+        java.util.Set<String> warned = new java.util.HashSet<>(Prefs.sp(c).getStringSet("limit_warned", new java.util.HashSet<>()));
+        boolean changed = false;
+        for (java.util.Iterator<String> it = lim.keys(); it.hasNext(); ) {
+            String pkg = it.next();
+            int l = lim.optInt(pkg);
+            Long ms = fg.get(pkg);
+            int m = ms == null ? 0 : (int) (ms / 60_000L);
+            if (l > 0 && m >= l && warned.add(day + ":" + pkg)) {
+                changed = true;
+                String label = IconEngine.label(c, pkg);
+                MAIN.post(() -> {
+                    PezTalk.limitOver(label, m, l);
+                    notice = "Llevas " + PezTalk.fmtMin(m) + " en " + label + " (tu límite: " + PezTalk.fmtMin(l) + "). ¿Un descanso?";
+                });
+            }
+        }
+        if (changed) {
+            warned.removeIf(s -> !s.startsWith(day));
+            Prefs.sp(c).edit().putStringSet("limit_warned", warned).apply();
+        }
+    }
+
+    private static final int[] LIMITS = {0, 15, 30, 45, 60, 90, 120};
+
+    /** Tiempo de hoy por app y en total; tocar una app le pone o quita un límite. */
+    static void panel(MainActivity a) {
+        if (!granted(a)) {
+            TextView t = Ui.text(a, "Para ver cuánto tiempo llevas en cada app, Android pide el permiso «Acceso al uso». Todo se queda en tu teléfono.", 14, Ui.MUTED, Ui.REGULAR);
+            t.setLineSpacing(0, 1.2f);
+            t.setPadding(Ui.dp(a, 10), 0, Ui.dp(a, 10), Ui.dp(a, 10));
+            List<Sheet.Item> items = new ArrayList<>();
+            items.add(Sheet.item("Dar permiso", Icons.CHECK, () -> {
+                try {
+                    a.startActivity(new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS));
+                } catch (Exception ignored) {
+                    // sin pantalla de permisos
+                }
+                Sheet.pill(a, a.backdrop(), "Busca Jostin OS y activa «Permitir acceso al uso»");
+            }));
+            Sheet.show(a, a.backdrop(), "Tiempo en pantalla", t, items);
+            return;
+        }
+        Context app = a.getApplicationContext();
+        NET.execute(() -> {
+            java.util.Map<String, Long> fg = new java.util.HashMap<>();
+            try {
+                UsageStatsManager usm = (UsageStatsManager) app.getSystemService(Context.USAGE_STATS_SERVICE);
+                if (usm != null) scan(usm, startOfDay(), System.currentTimeMillis(), fg);
+            } catch (Throwable e) {
+                Bitacora.error("tiempo en pantalla", e);
+            }
+            fg.remove(app.getPackageName());
+            List<java.util.Map.Entry<String, Long>> list = new ArrayList<>(fg.entrySet());
+            list.removeIf(en -> en.getValue() < 60_000L || app.getPackageManager().getLaunchIntentForPackage(en.getKey()) == null);
+            list.sort((x, y) -> Long.compare(y.getValue(), x.getValue()));
+            long total = 0;
+            for (java.util.Map.Entry<String, Long> en : list) total += en.getValue();
+            long tot = total;
+            MAIN.post(() -> showPanel(a, list, tot));
+        });
+    }
+
+    private static void showPanel(MainActivity a, List<java.util.Map.Entry<String, Long>> list, long total) {
+        if (a.isFinishing()) return;
+        JSONObject lim = limits(a);
+        TextView head = Ui.text(a, list.isEmpty() ? "Hoy casi no has usado el celular" : "Hoy llevas " + PezTalk.fmtMin((int) (total / 60_000L)) + " en total. Toca una app para ponerle un límite: el pez te avisa, no se bloquea nada.", 14, Ui.MUTED, Ui.REGULAR);
+        head.setLineSpacing(0, 1.2f);
+        head.setPadding(Ui.dp(a, 10), 0, Ui.dp(a, 10), Ui.dp(a, 10));
+        List<Sheet.Item> items = new ArrayList<>();
+        for (int i = 0; i < Math.min(15, list.size()); i++) {
+            String pkg = list.get(i).getKey();
+            int m = (int) (list.get(i).getValue() / 60_000L), l = lim.optInt(pkg, 0);
+            String label = IconEngine.label(a, pkg);
+            Sheet.Item it = Sheet.item(label, Icons.HISTORY, () -> limitPicker(a, pkg, label));
+            try {
+                it.drawable(a.getPackageManager().getApplicationIcon(pkg));
+            } catch (Exception ignored) {
+                // ícono de línea
+            }
+            String v = PezTalk.fmtMin(m).replace(" minutos", " min") + (l > 0 ? " · límite " + PezTalk.fmtMin(l).replace(" minutos", " min") : "");
+            it.value = () -> v;
+            it.keepOpen = false;
+            items.add(it);
+        }
+        Sheet.show(a, a.backdrop(), "Tiempo en pantalla", head, items);
+    }
+
+    private static void limitPicker(MainActivity a, String pkg, String label) {
+        int cur = limits(a).optInt(pkg, 0);
+        List<Sheet.Item> items = new ArrayList<>();
+        for (int l : LIMITS) {
+            String name = l == 0 ? "Sin límite" : PezTalk.fmtMin(l);
+            Sheet.Item it = Sheet.item(name, l == cur ? Icons.CHECK : Icons.HISTORY, () -> {
+                setLimit(a, pkg, l);
+                Sheet.pill(a, a.backdrop(), l == 0 ? label + " ya no tiene límite" : "Te aviso cuando pases de " + name + " en " + label);
+            });
+            items.add(it);
+        }
+        Sheet.show(a, a.backdrop(), "Límite para " + label, items);
     }
 
     private static boolean isTikTok(String p) {

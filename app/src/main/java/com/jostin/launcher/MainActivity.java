@@ -136,6 +136,7 @@ public class MainActivity extends Activity implements Studio.Host, Drawer.Host, 
     @Override
     protected void onCreate(Bundle saved) {
         super.onCreate(saved);
+        Bitacora.init(this);
         Ui.init(this);
         Sound.init(this);
         Theme.recompute(this);
@@ -501,6 +502,15 @@ public class MainActivity extends Activity implements Studio.Host, Drawer.Host, 
         handler.removeCallbacks(stable);
         handler.postDelayed(stable, 8000);
         AppUsage.kick(this);
+        if (AppUsage.notice != null) {
+            String n = AppUsage.notice;
+            AppUsage.notice = null;
+            handler.postDelayed(() -> Sheet.pill(this, backdrop, n), 900);
+        }
+        Bitacora.screen = drawerOpen ? "cajón" : "inicio";
+        Bitacora.watch(true);
+        // Una vez al día, en silencio, revisa si hay versión nueva
+        handler.postDelayed(() -> Updater.daily(this), 6000);
         Weather.refresh(this, false, n -> {
             home.tick();
         });
@@ -511,6 +521,7 @@ public class MainActivity extends Activity implements Studio.Host, Drawer.Host, 
     protected void onStop() {
         super.onStop();
         SystemWall.setVisible(this, false);
+        Bitacora.watch(false);
         backdrop.setRunning(false);
         AppWidgets.stop(this);
         home.stop();
@@ -576,6 +587,19 @@ public class MainActivity extends Activity implements Studio.Host, Drawer.Host, 
     @Override
     protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
+        if (Backup.onResult(this, req, res, data)) return;
+        if (req == Candado.REQ) {
+            Candado.onResult(res == RESULT_OK);
+            return;
+        }
+        if (req == REQ_GESTURE_APP) {
+            if (res == RESULT_OK && data != null && data.getStringExtra(AppsActivity.EXTRA_PKG) != null) {
+                String p = data.getStringExtra(AppsActivity.EXTRA_PKG);
+                Prefs.sp(this).edit().putString("g_app", p).apply();
+                Sheet.pill(this, backdrop, "Los gestos abrirán " + IconEngine.label(this, p));
+            }
+            return;
+        }
         if (req == REQ_BIND) {
             if (res == RESULT_OK && pendingWidget >= 0) configureWidget(pendingWidget);
             else cancelPendingWidget();
@@ -632,6 +656,10 @@ public class MainActivity extends Activity implements Studio.Host, Drawer.Host, 
     @Override
     public void onRequestPermissionsResult(int req, String[] perms, int[] results) {
         super.onRequestPermissionsResult(req, perms, results);
+        if (req == Drawer.REQ_CONTACTS) {
+            if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) Prefs.sp(this).edit().putBoolean("contacts_no", false).apply();
+            drawer.refresh();
+        }
         if (req == REQ_CAL) {
             home.forEachGadget(g -> {
                 if (g instanceof Gadgets.AgendaG) g.rebuild();
@@ -781,7 +809,7 @@ public class MainActivity extends Activity implements Studio.Host, Drawer.Host, 
             }
         } else {
             vdrag = V_DONE;
-            if (Prefs.gDown(this) != 2) expandNotifications();
+            runGesture(downAct(this));
         }
     }
 
@@ -815,9 +843,63 @@ public class MainActivity extends Activity implements Studio.Host, Drawer.Host, 
             case 2:
                 nextWallpaper();
                 break;
+            case 4:
+            case 5:
+            case 6:
+            case 7:
+                runGesture(Prefs.gDouble(this) - 2);
+                break;
             default:
                 break;
         }
+    }
+
+    /** Lo que puede hacer un gesto (abajo, dos dedos y las opciones nuevas del doble toque). */
+    static final String[] GESTURES = {"Nada", "Bloquear", "Notificaciones", "Cajón", "Buscador", "Abrir una app"};
+    static final int REQ_GESTURE_APP = 306;
+
+    static int downAct(Context c) {
+        int v = Prefs.sp(c).getInt("g_down_act", -1);
+        return v >= 0 ? v : Prefs.gDown(c) == 2 ? 0 : 2;
+    }
+
+    void runGesture(int g) {
+        switch (g) {
+            case 1:
+                if (!LockService.lock()) requestLock();
+                break;
+            case 2:
+                expandNotifications();
+                break;
+            case 3:
+                openDrawer(false);
+                break;
+            case 4:
+                openDrawer(true);
+                break;
+            case 5:
+                String p = Prefs.sp(this).getString("g_app", null);
+                if (p == null || getPackageManager().getLaunchIntentForPackage(p) == null) {
+                    pickGestureApp();
+                } else {
+                    Sound.play(content, Sound.OPEN);
+                    launch(this, p, null);
+                }
+                break;
+            default:
+                break;
+        }
+    }
+
+    void pickGestureApp() {
+        Intent i = new Intent(this, AppsActivity.class);
+        i.putExtra(AppsActivity.EXTRA_PICK, true);
+        startActivityForResult(i, REQ_GESTURE_APP);
+        overridePendingTransition(Screen.anim(this, "screen_enter"), Screen.anim(this, "stay_out"));
+    }
+
+    void twoFingerSwipe() {
+        runGesture(Prefs.sp(this).getInt("g_two", 0));
     }
 
     private void nextWallpaper() {
@@ -1205,6 +1287,7 @@ public class MainActivity extends Activity implements Studio.Host, Drawer.Host, 
 
     private void openDrawer(boolean search) {
         drawerOpen = true;
+        Bitacora.screen = "cajón";
         drawer.load(drawer.getVisibility() != View.VISIBLE);
         if (drawer.getVisibility() != View.VISIBLE) drawer.setProgress(0f);
         drawer.settle(true, search ? drawer::focusSearch : null);
@@ -1215,6 +1298,7 @@ public class MainActivity extends Activity implements Studio.Host, Drawer.Host, 
     @Override
     public void closeDrawer() {
         drawerOpen = false;
+        Bitacora.screen = "inicio";
         drawer.settle(false, null);
         content.animate().alpha(1f).setStartDelay(0).setDuration(300).start();
         Ui.setLightBars(this, Theme.wallLight);
@@ -1241,25 +1325,39 @@ public class MainActivity extends Activity implements Studio.Host, Drawer.Host, 
                     Sheet.item("Desinstalar", Icons.TRASH, () -> uninstall(app.pkg, app.user)).danger());
             return;
         }
-        // Una oculta sale al buscarla: desde aquí se puede volver a mostrar
-        boolean isHidden = Prefs.hidden(this).contains(app.pkg);
-        Sheet.show(this, backdrop, app.label,
+        // Primero los atajos de la propia app (lo que ofrece al mantenerla presionada)
+        List<Sheet.Item> sc = new ArrayList<>(HomeMenus.shortcutItems(this, app.pkg));
+        sc.addAll(java.util.Arrays.asList(
                 Sheet.item("Agregar a inicio", Icons.PLUS, () -> {
                     closeDrawer();
                     handler.postDelayed(() -> addAppToHome(app.pkg), 300);
                 }),
                 Sheet.item("Poner en el dock", Icons.HOME, () -> chooseSlot(app.pkg, app.label)),
-                Sheet.item(isHidden ? "Mostrar en el cajón" : "Ocultar del cajón", isHidden ? Icons.EYE : Icons.CLOSE, () -> {
+                Sheet.item("Ocultar del cajón", Icons.CLOSE, () -> {
                     Set<String> h = Prefs.hidden(this);
-                    if (isHidden) h.remove(app.pkg);
-                    else h.add(app.pkg);
+                    h.add(app.pkg);
                     Prefs.setHidden(this, h);
                     drawer.load(false);
-                    Sheet.pill(this, backdrop, isHidden ? app.label + " volvió al cajón"
-                            : app.label + " quedó oculta. Para verla, búscala o toca «Apps ocultas» en el cajón");
+                    Sheet.pill(this, backdrop, app.label + " quedó oculta");
                 }),
                 Sheet.item("Información de la app", Icons.INFO, () -> appInfo(this, app.pkg)),
-                Sheet.item("Desinstalar", Icons.TRASH, () -> uninstall(app.pkg)).danger());
+                Sheet.item("Categoría en el cajón", Icons.GRID, () -> chooseCategory(app)),
+                Sheet.item("Desinstalar", Icons.TRASH, () -> uninstall(app.pkg)).danger()));
+        Sheet.show(this, backdrop, app.label, sc);
+    }
+
+    private void chooseCategory(Drawer.App app) {
+        int cur = Drawer.manualCat(this, app.pkg);
+        List<Sheet.Item> items = new ArrayList<>();
+        for (int k = 0; k < Drawer.CATS.length; k++) {
+            final int kk = k;
+            String name = k == 0 ? "Automática (" + Drawer.CATS[Drawer.catOf(this, new Drawer.App(app.label, app.pkg))] + ")" : Drawer.CATS[k];
+            items.add(Sheet.item(name, k == cur ? Icons.CHECK : Icons.GRID, () -> {
+                Drawer.setManualCat(this, app.pkg, kk);
+                drawer.load(false);
+            }));
+        }
+        Sheet.show(this, backdrop, "Categoría de " + app.label, items);
     }
 
     void uninstall(String pkg) {
@@ -1296,6 +1394,14 @@ public class MainActivity extends Activity implements Studio.Host, Drawer.Host, 
 
     @Override
     public void showHiddenApps() {
+        if (Prefs.hidden(this).isEmpty()) {
+            Sheet.pill(this, backdrop, "No tienes apps ocultas");
+            return;
+        }
+        Candado.verify(this, "Apps ocultas", this::showHiddenAppsNow);
+    }
+
+    private void showHiddenAppsNow() {
         Set<String> hidden = Prefs.hidden(this);
         if (hidden.isEmpty()) {
             Sheet.pill(this, backdrop, "No tienes apps ocultas");
@@ -1636,6 +1742,13 @@ public class MainActivity extends Activity implements Studio.Host, Drawer.Host, 
         list.add(Sheet.item("Cambiar app", Icons.SWAP, () -> pickApp(slot)));
         list.add(Sheet.item("Cambiar ícono o nombre", Icons.IMAGE, () -> HomeMenus.iconMenu(this, pkg)));
         list.add(Sheet.item("Información de la app", Icons.INFO, () -> appInfo(this, pkg)));
+        list.add(Sheet.item("Ocultar del cajón", Icons.CLOSE, () -> {
+            Set<String> h = Prefs.hidden(this);
+            h.add(pkg);
+            Prefs.setHidden(this, h);
+            drawer.load(false);
+            Sheet.pill(this, backdrop, IconEngine.label(this, pkg) + " quedó oculta en el cajón");
+        }));
         list.add(Sheet.item("Quitar del dock", Icons.CLOSE, () -> {
             Prefs.setSlot(this, slot, null);
             refreshDock();
