@@ -1935,12 +1935,14 @@ final class Gadgets {
         private static final int GREEN = 0xFF3DFF7A, RED = 0xFFFF3B3B;
         private static final long EVERY = 15_000;
         private static final String[] PCT = new String[101];
+        /** Corazón como letra (FE0E), no como emoji: así toma el color que le toca. */
+        private static final String HEART = "♥︎";
         // sleep, hungry, sad, bored, party, full, love, happy, normal, angry, dizzy, surprised, proud
         private static final String[] MOOD_KEY = {"sleep", "hungry", "sad", "bored", "party", "full", "love", "happy", "normal", "angry", "dizzy", "surprised", "proud"};
-        private static final String[] MOOD_EYE = {"-", "@", ";", "~", "^", "°", "♥", "^", "°", "ò", "x", "O", "^"};
+        private static final String[] MOOD_EYE = {"-", "@", ";", "~", "^", "°", HEART, "^", "°", "ò", "x", "O", "^"};
         private static final String[] MOOD_LBL = {"zzz", "¡HAMBRE!", "TRISTE", "ABURRIDO", "♪ BAILANDO ♪", "LLENITO", "♥ ENAMORADO", "♥ FELIZ", "TRANQUILO", "ENOJADO", "MAREADO", "¡¿?!", "★ CAMPEÓN"};
         private static final float[] MOOD_SP = {.4f, .85f, .6f, .7f, 1.3f, .75f, 1.1f, 1.1f, 1f, 1.5f, .5f, 1.6f, 1.2f};
-        private static final String[] MOOD_EMO = {"z", "!", "…", "…", "♪", "~", "♥", "", "", "#", "@", "!", "★"};
+        private static final String[] MOOD_EMO = {"z", "!", "…", "…", "♪", "~", HEART, "", "", "#", "@", "!", "★"};
         private static final String[] MOOD_OFF = new String[MOOD_LBL.length];
         private static final int ANGRY = 9, DIZZY = 10, SURPRISED = 11;
         private static final Pez BLANK = new Pez(new JSONObject());
@@ -2482,6 +2484,12 @@ final class Gadgets {
                         glyphP.setColor(ci);
                         glyphP.setAlpha(0xD0);
                         c.drawBitmap(g, cx - g.getWidth() / 2f, cy - ts * 0.35f - g.getHeight() / 2f, glyphP);
+                    } else if (cells[i] == HEART) {
+                        // El ojo de enamorado va más chico y del color del pez
+                        fish.setColor(ci);
+                        fish.setTextSize(ts * 0.62f);
+                        c.drawText(HEART, cx, cy - ts * 0.14f, fish);
+                        fish.setTextSize(ts);
                     } else {
                         fish.setColor(ci);
                         c.drawText(cells[i], cx, cy, fish);
@@ -2516,7 +2524,7 @@ final class Gadgets {
                     continue;
                 }
                 String ch = emoCh[e];
-                int ec = "♥".equals(ch) ? 0xFFFF5C8A : "#".equals(ch) ? 0xFFFF4040 : "★".equals(ch) ? 0xFFFFD54A : "♪".equals(ch) ? 0xFF8FDCFF : 0xFFE8F5E9;
+                int ec = HEART.equals(ch) ? 0xFFFF2E3E : "#".equals(ch) ? 0xFFFF4040 : "★".equals(ch) ? 0xFFFFD54A : "♪".equals(ch) ? 0xFF8FDCFF : 0xFFE8F5E9;
                 ui.setColor(Ui.alpha(ec, (int) (255 * Math.max(0f, 1f - a / 2f))));
                 c.drawText(ch, emoX[e] + (float) Math.sin(a * 3 + e) * cw * 0.3f, emoY[e] - a * ts * 0.85f, ui);
             }
