@@ -1935,10 +1935,19 @@ final class Gadgets {
         private static final int GREEN = 0xFF3DFF7A, RED = 0xFFFF3B3B;
         private static final long EVERY = 15_000;
         private static final String[] PCT = new String[101];
+        // sleep, hungry, sad, bored, party, full, love, happy, normal, angry, dizzy, surprised, proud
+        private static final String[] MOOD_KEY = {"sleep", "hungry", "sad", "bored", "party", "full", "love", "happy", "normal", "angry", "dizzy", "surprised", "proud"};
+        private static final String[] MOOD_EYE = {"-", "@", ";", "~", "^", "°", "♥", "^", "°", "ò", "x", "O", "^"};
+        private static final String[] MOOD_LBL = {"zzz", "¡HAMBRE!", "TRISTE", "ABURRIDO", "♪ BAILANDO ♪", "LLENITO", "♥ ENAMORADO", "♥ FELIZ", "TRANQUILO", "ENOJADO", "MAREADO", "¡¿?!", "★ CAMPEÓN"};
+        private static final float[] MOOD_SP = {.4f, .85f, .6f, .7f, 1.3f, .75f, 1.1f, 1.1f, 1f, 1.5f, .5f, 1.6f, 1.2f};
+        private static final String[] MOOD_EMO = {"z", "!", "…", "…", "♪", "~", "♥", "", "", "#", "@", "!", "★"};
+        private static final String[] MOOD_OFF = new String[MOOD_LBL.length];
+        private static final int ANGRY = 9, DIZZY = 10, SURPRISED = 11;
         private static final Pez BLANK = new Pez(new JSONObject());
 
         static {
             for (int i = 0; i <= 100; i++) PCT[i] = i + "%";
+            for (int i = 0; i < MOOD_LBL.length; i++) MOOD_OFF[i] = MOOD_LBL[i] + " · SIN RED";
         }
 
         // Compartido por todos los peces de inicio: una sola descarga para todos
@@ -1989,6 +1998,18 @@ final class Gadgets {
         private boolean slow;
         private int hourNow = -1;
         private long battAt;
+        // Ánimo del momento, ánimo temporal (enojado, mareado, sorprendido) y emotes que flotan
+        private int tempMood = -1;
+        private long tempUntil, lastTouch = SystemClock.uptimeMillis(), nextEmo, travelUp;
+        private float travelPh;
+        private final long[] tapTimes = new long[5];
+        private final float[] emoX = new float[6], emoY = new float[6];
+        private final long[] emoT = new long[6];
+        private final String[] emoCh = new String[6];
+        // Brillo de cada letra ya difuminado (se hace una vez por letra y tamaño, no en cada cuadro)
+        private final java.util.HashMap<String, Bitmap> glyphGlow = new java.util.HashMap<>();
+        private float glyphTs = -1;
+        private final Paint blurP = new Paint(Paint.ANTI_ALIAS_FLAG), glyphP = new Paint(Paint.FILTER_BITMAP_FLAG);
         private boolean paintFailed;
         // Brillos (se crean una vez y se reacomodan con una matriz, sin objetos nuevos por cuadro)
         private final Paint glowP = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -2013,6 +2034,7 @@ final class Gadgets {
             b.setPixel(0, 0, Ui.alpha(GREEN, 0x12));
             scan.setShader(new BitmapShader(b, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT));
             if (pez == null) pez = saved(a);
+            PezTalk.preload(a);
             setContentDescription("Pez de estudio");
         }
 
@@ -2045,6 +2067,13 @@ final class Gadgets {
             setOnClickListener(v -> {
                 if (fishBox.contains(downX, downY)) {
                     tapSound(v);
+                    long t = SystemClock.uptimeMillis();
+                    System.arraycopy(tapTimes, 1, tapTimes, 0, tapTimes.length - 1);
+                    tapTimes[tapTimes.length - 1] = t;
+                    int taps = 0;
+                    for (long x : tapTimes) if (x > 0 && t - x < 4000) taps++;
+                    if (taps >= 5 && setMood(DIZZY, 5)) return;
+                    if (taps == 3 && setMood(ANGRY, 6)) return;
                     speak(PezTalk.clickLine(act));
                 } else {
                     open();
@@ -2057,6 +2086,7 @@ final class Gadgets {
             if (e.getActionMasked() == android.view.MotionEvent.ACTION_DOWN) {
                 downX = e.getX();
                 downY = e.getY();
+                lastTouch = SystemClock.uptimeMillis();
                 PezTalk.wake();
             }
             return super.dispatchTouchEvent(e);
@@ -2066,6 +2096,57 @@ final class Gadgets {
         @Override
         void onScroll() {
             if (started) invalidate();
+        }
+
+        /** Ánimo temporal; a veces lo dice. true si habló. */
+        private boolean setMood(int k, int secs) {
+            long up = SystemClock.uptimeMillis();
+            tempMood = k;
+            tempUntil = up + secs * 1000L;
+            invalidate();
+            if (up > sayUntil && Math.random() < .6) {
+                String m = PezTalk.moodLine(act, MOOD_KEY[k]);
+                if (m != null) {
+                    speak(m);
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private int mood(Pez p, float food, float happy, long up) {
+            if (asleep) return 0;
+            if (tempMood >= 0 && up < tempUntil) return tempMood;
+            if (p == null) return 8;
+            if (food < 20) return 1;
+            if (happy < 25) return 2;
+            if (p.fat >= 3) return 5;
+            if (happy > 90 && food > 60) return 6;
+            if (happy > 75) return 7;
+            if (happy < 50 && up - lastTouch > 240_000) return 3;
+            return 8;
+        }
+
+        /** Brillo difuminado de una letra (en gris, se pinta del color con el Paint al dibujarlo). */
+        private Bitmap glowOf(String ch, float ts) {
+            if (ts != glyphTs) {
+                for (Bitmap b : glyphGlow.values()) b.recycle();
+                glyphGlow.clear();
+                glyphTs = ts;
+            }
+            Bitmap b = glyphGlow.get(ch);
+            if (b == null) {
+                int rr = (int) Math.ceil(ts * 0.4f) + 1, size = (int) Math.ceil(ts * 1.4f) + rr * 2;
+                b = Bitmap.createBitmap(size, size, Bitmap.Config.ALPHA_8);
+                blurP.setTypeface(fish.getTypeface());
+                blurP.setTextSize(ts);
+                blurP.setTextAlign(Paint.Align.CENTER);
+                blurP.setColor(0xFFFFFFFF);
+                blurP.setMaskFilter(new android.graphics.BlurMaskFilter(Math.max(1f, ts * 0.3f), android.graphics.BlurMaskFilter.Blur.NORMAL));
+                new Canvas(b).drawText(ch, size / 2f, size / 2f + ts * 0.35f, blurP);
+                glyphGlow.put(ch, b);
+            }
+            return b;
         }
 
         private void speak(String s) {
@@ -2158,6 +2239,7 @@ final class Gadgets {
                         if ("pc".equals(fresh.by) && fresh.t != lastPcT && System.currentTimeMillis() - fresh.t < 20_000
                                 && ("feed".equals(ev) || "play".equals(ev) || "look".equals(ev) || "talk".equals(ev))) {
                             lastPcT = fresh.t;
+                            setMood(SURPRISED, 4);
                             speak(PezTalk.fromPc(act, ev));
                         }
                         // Se guarda solo si cambió, para no escribir en disco cada 15 s
@@ -2188,7 +2270,9 @@ final class Gadgets {
             // Solo se anima mientras se ve; fuera de la pantalla revisa despacito por si vuelves
             if (started && seen) {
                 removeCallbacks(frame);
-                postDelayed(frame, still ? 1000 : slow ? 100 : 50);
+                if (still) postDelayed(frame, 1000);
+                else if (slow) postDelayed(frame, 33);
+                else postInvalidateOnAnimation();
             } else {
                 removeCallbacks(frame);
             }
@@ -2274,17 +2358,16 @@ final class Gadgets {
             ui.setStyle(Paint.Style.FILL);
             ui.setTextSize(hs);
             ui.setTextAlign(Paint.Align.LEFT);
-            String mood = p == null ? (offline ? "SIN RED" : "…") : asleep ? "zzz" : food < 25 ? "¡HAMBRE!"
-                    : happy < 25 ? "¡ABURRIDO!" : offline ? "♥ FELIZ · SIN RED" : "♥ FELIZ";
+            int mk = mood(p, food, happy, up);
+            String mood = p == null && offline ? "SIN RED" : offline ? MOOD_OFF[mk] : MOOD_LBL[mk];
             int moodCol = alert ? RED : GREEN;
+            ui.clearShadowLayer();
             ui.setTextAlign(Paint.Align.RIGHT);
             ui.setColor(moodCol);
-            ui.setShadowLayer(hs * 0.7f, 0, 0, Ui.alpha(moodCol, 0x99));
             c.drawText(mood, x1, y0 + hs * 0.8f, ui);
             float moodW = ui.measureText(mood) + hs;
             ui.setTextAlign(Paint.Align.LEFT);
-            ui.setColor(Ui.alpha(GREEN, 0xB3));
-            ui.setShadowLayer(hs * 0.6f, 0, 0, Ui.alpha(GREEN, 0x66));
+            ui.setColor(Ui.alpha(GREEN, 0xC0));
             String h = "C:\\ESTUDIO\\PEZ.EXE";
             int fit = ui.breakText(h, true, Math.max(0, x1 - x0 - moodW), null);
             c.drawText(h, 0, fit, x0, y0 + hs * 0.8f, ui);
@@ -2315,7 +2398,7 @@ final class Gadgets {
             scenery(c, x0, x1, top, floorY, sTs, up);
             Pez look = p != null ? p : BLANK;
             int n = 3 + look.fat, len = 7 + n;
-            String eye = asleep ? "-" : p == null ? "°" : food < 20 ? "@" : happy > 75 ? "^" : happy < 25 ? ";" : "°";
+            String eye = MOOD_EYE[mk];
             // El pez más gordo (15 celdas) cabe a lo ancho según el tamaño que eligieron
             float k = look.size == 22 ? 0.6f : look.size == 34 ? 0.92f : 0.76f;
             float ts = Math.min(areaW * k / (15 * adv), areaH * 0.5f);
@@ -2336,9 +2419,13 @@ final class Gadgets {
                 ty = lowY;
                 maxSp = 0.3f * dens;
             } else {
-                tx = x0 + travel * posAt(up, 16_000);
+                float dts = travelUp == 0 ? 0 : Math.min(0.1f, (up - travelUp) / 1000f);
+                travelUp = up;
+                travelPh = (travelPh + dts * MOOD_SP[mk] / 16f) % 1f;
+                float tf = travelPh < 0.5f ? travelPh * 2f : 2f - travelPh * 2f;
+                tx = x0 + travel * tf * tf * (3f - 2f * tf);
                 ty = midY + (float) Math.sin(tSec * 2.4) * cw * 0.22f;
-                maxSp = 3f * dens;
+                maxSp = 3f * dens * Math.max(1f, MOOD_SP[mk]);
             }
             float dt = lastUp == 0 ? 1f : Math.max(0.1f, Math.min(6f, (up - lastUp) / 16.7f));
             lastUp = up;
@@ -2382,25 +2469,57 @@ final class Gadgets {
             swimSv += (Math.min(1f, fishV / 2f) - swimSv) * Math.min(1f, dtS * 5f);
             swimPh = (swimPh + dtS * (3f + swimSv * 11f)) % (float) (Math.PI * 200);
             float amp = still ? 0 : (1.1f + swimSv * 2.6f) * ts / 28f;
+            fish.clearShadowLayer();
             for (int pass = 0; pass < 2; pass++) {
-                if (pass == 1) fish.clearShadowLayer();
                 for (int i = 0; i < len; i++) {
                     int kk = dir < 0 ? i : len - 1 - i;
                     float w = kk / (float) (len - 1);
                     float yo = (float) Math.sin(swimPh - kk * 0.6f) * amp * (0.15f + w * 0.9f);
                     int ci = rainbow ? hsl((tSec * 90f + i * 28f) % 360f, 1f, 0.62f) : col;
-                    if (pass == 0) fish.setShadowLayer(ts * 0.35f, 0, 0, ci);
-                    fish.setColor(ci);
-                    c.drawText(cells[i], left + cw * (i + 0.5f), base + yo, fish);
+                    float cx = left + cw * (i + 0.5f), cy = base + yo;
+                    if (pass == 0) {
+                        Bitmap g = glowOf(cells[i], ts);
+                        glyphP.setColor(ci);
+                        glyphP.setAlpha(0xD0);
+                        c.drawBitmap(g, cx - g.getWidth() / 2f, cy - ts * 0.35f - g.getHeight() / 2f, glyphP);
+                    } else {
+                        fish.setColor(ci);
+                        c.drawText(cells[i], cx, cy, fish);
+                    }
                 }
             }
-            fish.clearShadowLayer();
 
             // Gorro sobre la cabeza (encima del ojo)
             int eyeAt = dir < 0 ? 1 : len - 2;
             float headX = left + cw * (eyeAt + 0.5f);
             drawHat(c, look.hat, headX, base - ts * 0.74f, cw, dir);
             fishBox.set(left - cw, base - ts * 1.6f, left + fw + cw, base + ts * 0.4f);
+            String emo = MOOD_EMO[mk];
+            if (!still && !emo.isEmpty() && up > nextEmo) {
+                nextEmo = up + 1100 + (long) (Math.random() * 600);
+                for (int e = 0; e < emoT.length; e++) {
+                    if (emoT[e] != 0 && up - emoT[e] < 2000) continue;
+                    emoT[e] = up;
+                    emoCh[e] = emo;
+                    emoX[e] = headX + (float) (Math.random() - 0.5) * cw * 0.8f;
+                    emoY[e] = base - ts * 1.25f;
+                    break;
+                }
+            }
+            ui.setTextAlign(Paint.Align.CENTER);
+            ui.setTextSize(ts * 0.55f);
+            for (int e = 0; e < emoT.length; e++) {
+                if (emoT[e] == 0) continue;
+                float a = (up - emoT[e]) / 1000f;
+                if (a > 2f) {
+                    emoT[e] = 0;
+                    continue;
+                }
+                String ch = emoCh[e];
+                int ec = "♥".equals(ch) ? 0xFFFF5C8A : "#".equals(ch) ? 0xFFFF4040 : "★".equals(ch) ? 0xFFFFD54A : "♪".equals(ch) ? 0xFF8FDCFF : 0xFFE8F5E9;
+                ui.setColor(Ui.alpha(ec, (int) (255 * Math.max(0f, 1f - a / 2f))));
+                c.drawText(ch, emoX[e] + (float) Math.sin(a * 3 + e) * cw * 0.3f, emoY[e] - a * ts * 0.85f, ui);
+            }
 
             // Habla: saluda al verse y luego platica solo cada 18 a 38 s mientras está a la vista
             if (seen && up - battAt > 5000) {
@@ -2423,7 +2542,7 @@ final class Gadgets {
                         seenDuo = PezTalk.duoAlertAt;
                         speak(duo);
                     } else {
-                        speak(PezTalk.chatter(act, food, happy));
+                        speak(PezTalk.chatter(act, food, happy, MOOD_KEY[mk]));
                     }
                 }
             }
@@ -2498,9 +2617,7 @@ final class Gadgets {
             // Cofre dorado
             float chestX = x0 + wdt * 0.72f, chestY = floorY - sTs * 0.9f;
             ui.setColor(0xFFFFD54A);
-            ui.setShadowLayer(sTs * 0.6f, 0, 0, 0x88FFD54A);
             c.drawText("[$$$]", chestX, chestY, ui);
-            ui.clearShadowLayer();
             // Burbujas ° o O que suben desde el cofre
             if (still) return;
             float rise = chestY - sTs - top;

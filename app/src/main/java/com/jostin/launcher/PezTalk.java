@@ -70,6 +70,12 @@ final class PezTalk {
         return L;
     }
 
+    /** Carga las frases fuera del hilo principal (para que el primer saludo no trabe). */
+    static void preload(Context c) {
+        Context app = c.getApplicationContext();
+        Gadgets.BG.execute(() -> phrases(app));
+    }
+
     /** Segundos desde que prendió el teléfono (el «T» del JS). */
     private static double T() {
         return SystemClock.elapsedRealtime() / 1000.0;
@@ -219,12 +225,26 @@ final class PezTalk {
         return null;
     }
 
+    /** Frase del estado de ánimo (enojado, mareado, enamorado…), si tiene. */
+    static String moodLine(Context c, String mood) {
+        List<String> a = sub(c, "moods", mood);
+        return a.isEmpty() ? null : pickFresh(a);
+    }
+
     static String chatter(Context c, float food, float happy) {
+        return chatter(c, food, happy, null);
+    }
+
+    static String chatter(Context c, float food, float happy, String mood) {
         int h = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
         if (sleeping()) return pickFresh(get(c, "night"));
         if (food < 10) return pickFresh(get(c, "starving"));
         String batt = battLine(c);
         if (batt != null) return batt;
+        if (mood != null && R.nextDouble() < .3) {
+            String m = moodLine(c, mood);
+            if (m != null) return m;
+        }
         if (food < 30 && R.nextDouble() < .45) return pickFresh(get(c, "hungry"));
         if (happy < 30 && R.nextDouble() < .4) return pickFresh(get(c, "bored"));
         if (T() > appCool) {
