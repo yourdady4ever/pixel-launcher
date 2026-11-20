@@ -1106,6 +1106,7 @@ class HomeView extends FrameLayout {
         }
         dots.invalidate();
         if (selected != null) updateFrame();
+        forEachGadget(Gadgets.Gadget::onScroll);
     }
 
     /** Transición entre páginas. off: 0 = a la vista, -1 = a la izquierda, 1 = a la derecha. */

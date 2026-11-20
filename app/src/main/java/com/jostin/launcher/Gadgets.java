@@ -282,6 +282,9 @@ final class Gadgets {
 
         void tick() {}
 
+        /** Se pasó de página en inicio (los que se animan revisan si quedaron a la vista). */
+        void onScroll() {}
+
         void onMedia() {}
 
         void options(List<Sheet.Item> out) {}
@@ -1925,6 +1928,7 @@ final class Gadgets {
      */
     static final class PezG extends Gadget {
         static final String DATA = "https://pez-estudio-default-rtdb.firebaseio.com/pez.json";
+        static final String APPS = "https://pez-estudio-default-rtdb.firebaseio.com/apps.json";
         private static final ExecutorService NET = Executors.newSingleThreadExecutor();
         private static final int GREEN = 0xFF3DFF7A, RED = 0xFFFF3B3B;
         private static final long EVERY = 15_000;
@@ -1964,6 +1968,17 @@ final class Gadgets {
         private Pez headFor;
         private boolean headMade, headOffline, headAsleep;
         private String head = "";
+        // Lo que dice: una burbuja blanca unos segundos
+        private String say, sayFor;
+        private long sayUntil, nextChat, lastPcT, seenDuo;
+        private boolean wantGreet = true;
+        private android.text.StaticLayout sayLayout;
+        private int sayW;
+        private final android.text.TextPaint sayPaint = new android.text.TextPaint(Paint.ANTI_ALIAS_FLAG);
+        /** Dónde está el pez (para saber si lo tocaste a él o al resto del cuadro). */
+        private final RectF fishBox = new RectF();
+        private float downX = -1, downY = -1;
+        private static long appsAt;
 
         PezG(MainActivity a, HomeModel.Item it) {
             super(a, it);
@@ -2007,7 +2022,37 @@ final class Gadgets {
 
         @Override
         void build() {
-            setOnClickListener(v -> open());
+            // Tocar al pez lo hace hablar; tocar fuera de él abre su página
+            setOnClickListener(v -> {
+                if (fishBox.contains(downX, downY)) {
+                    tapSound(v);
+                    speak(PezTalk.clickLine(act));
+                } else {
+                    open();
+                }
+            });
+        }
+
+        @Override
+        public boolean dispatchTouchEvent(android.view.MotionEvent e) {
+            if (e.getActionMasked() == android.view.MotionEvent.ACTION_DOWN) {
+                downX = e.getX();
+                downY = e.getY();
+            }
+            return super.dispatchTouchEvent(e);
+        }
+
+        /** Al pasar de página se redibuja, para que vuelva a moverse si quedó a la vista. */
+        @Override
+        void onScroll() {
+            if (started) invalidate();
+        }
+
+        private void speak(String s) {
+            if (s == null || s.isEmpty()) return;
+            say = s;
+            sayUntil = SystemClock.uptimeMillis() + Math.min(7000, Math.max(4000, s.length() * 70L));
+            invalidate();
         }
 
         private void open() {
@@ -2018,6 +2063,9 @@ final class Gadgets {
         @Override
         void options(List<Sheet.Item> out) {
             out.add(Sheet.item("Abrir el pez", FISH, this::open));
+            Sheet.Item apps = Sheet.item("El pez y tus apps", Icons.EYE, () -> AppUsage.explain(act, backdrop));
+            apps.value = () -> AppUsage.enabled(act) ? "Sí" : "No";
+            out.add(apps);
             out.add(Sheet.item("Actualizar ahora", Icons.HISTORY, () -> {
                 fetchedAt = 0;
                 fetch();
@@ -2031,6 +2079,8 @@ final class Gadgets {
             android.os.PowerManager pm = (android.os.PowerManager) act.getSystemService(Context.POWER_SERVICE);
             still = Prefs.motion(act) >= 2 || (pm != null && pm.isPowerSaveMode());
             sleepAt = 0;
+            // Al volver a inicio saluda (cuando de verdad se vea)
+            wantGreet = true;
             invalidate();
         }
 
@@ -2055,13 +2105,36 @@ final class Gadgets {
                 } catch (Throwable ignored) {
                     // sin internet, base vacía o respuesta rara
                 }
+                // Lo de tus apps cambia despacio: basta con leerlo cada minuto
+                JSONObject a = null;
+                if (System.currentTimeMillis() - appsAt > 60_000) {
+                    appsAt = System.currentTimeMillis();
+                    try {
+                        a = new JSONObject(Weather.get(APPS));
+                    } catch (Throwable ignored) {
+                        // sin datos de apps
+                    }
+                }
+                final JSONObject apps = a;
                 final String body = got;
                 final Pez fresh = p;
                 MAIN.post(() -> {
                     loading = false;
                     offline = fresh == null;
+                    if (apps != null) {
+                        PezTalk.appsPc = apps.optJSONObject("pc");
+                        JSONObject cel = apps.optJSONObject("cel");
+                        if (cel != null) PezTalk.appsCel = cel;
+                    }
                     if (fresh != null) {
                         pez = fresh;
+                        // Si lo cuidaron desde la compu hace un momento, lo cuenta
+                        String ev = fresh.ev;
+                        if ("pc".equals(fresh.by) && fresh.t != lastPcT && System.currentTimeMillis() - fresh.t < 20_000
+                                && ("feed".equals(ev) || "play".equals(ev) || "look".equals(ev) || "talk".equals(ev))) {
+                            lastPcT = fresh.t;
+                            speak(PezTalk.fromPc(act, ev));
+                        }
                         // Se guarda solo si cambió, para no escribir en disco cada 15 s
                         if (!body.equals(raw)) {
                             raw = body;
@@ -2086,9 +2159,11 @@ final class Gadgets {
                 // un dato raro no debe tumbar la pantalla de inicio
             }
             // Solo se anima mientras se ve; fuera de la pantalla revisa despacito por si vuelves
-            if (started && isShown()) {
+            if (started && seen) {
                 removeCallbacks(frame);
-                postDelayed(frame, !seen ? 500 : still ? 1000 : 50);
+                postDelayed(frame, still ? 1000 : 50);
+            } else {
+                removeCallbacks(frame);
             }
         }
 
@@ -2210,7 +2285,27 @@ final class Gadgets {
 
             // Gorro sobre la cabeza (encima del ojo)
             int eyeAt = dir < 0 ? 1 : len - 2;
-            drawHat(c, look.hat, left + cw * (eyeAt + 0.5f), base - ts * 0.74f, cw, dir);
+            float headX = left + cw * (eyeAt + 0.5f);
+            drawHat(c, look.hat, headX, base - ts * 0.74f, cw, dir);
+            fishBox.set(left - cw, base - ts * 1.6f, left + fw + cw, base + ts * 0.4f);
+
+            // Habla: saluda al verse y luego platica solo cada 18 a 38 s mientras está a la vista
+            if (seen) {
+                if (wantGreet) {
+                    wantGreet = false;
+                    speak(PezTalk.greet(act, food));
+                    nextChat = up + 18_000 + (long) (Math.random() * 20_000);
+                } else if (up >= nextChat && up > sayUntil) {
+                    nextChat = up + 18_000 + (long) (Math.random() * 20_000);
+                    String duo = PezTalk.duoAlert(act, seenDuo);
+                    if (duo != null) {
+                        seenDuo = PezTalk.duoAlertAt;
+                        speak(duo);
+                    } else {
+                        speak(PezTalk.chatter(act, food, happy));
+                    }
+                }
+            }
 
             // Burbujas que salen de la boca (o zetas si está dormido)
             if (!still) {
@@ -2241,6 +2336,49 @@ final class Gadgets {
                 }
                 ui.setStyle(Paint.Style.FILL);
             }
+            if (say != null && up < sayUntil) drawSay(c, L, T, W, H, headX, base - ts * 1.55f, base + ts * 0.35f);
+        }
+
+        /** Burbuja blanca con texto oscuro y colita hacia el pez; arriba de él, o abajo si no cabe. */
+        private void drawSay(Canvas c, float bl, float bt, float bw, float bh, float tx, float fTop, float fBot) {
+            float ts = Math.max(dp(10), Math.min(dp(12), bh * 0.09f));
+            int maxW = (int) Math.max(dp(60), bw * 0.8f - dp(18));
+            if (sayLayout == null || !say.equals(sayFor) || sayW != maxW || sayPaint.getTextSize() != ts) {
+                sayPaint.setTextSize(ts);
+                sayPaint.setColor(0xFF15171A);
+                sayPaint.setTypeface(Ui.MEDIUM);
+                int w = (int) Math.min(maxW, Math.ceil(sayPaint.measureText(say)));
+                sayLayout = android.text.StaticLayout.Builder.obtain(say, 0, say.length(), sayPaint, Math.max(1, w))
+                        .setMaxLines(3).setEllipsize(TextUtils.TruncateAt.END).build();
+                sayFor = say;
+                sayW = maxW;
+            }
+            float padX = dp(9), padY = dp(6), tail = dp(7);
+            float w = sayLayout.getWidth() + padX * 2, h = sayLayout.getHeight() + padY * 2;
+            float x = Math.max(bl + dp(6), Math.min(bl + bw - dp(6) - w, tx - w / 2f));
+            boolean above = fTop - tail - h >= bt + dp(4);
+            float y = above ? fTop - tail - h : Math.min(fBot + tail, bt + bh - h - dp(4));
+            hat.setStyle(Paint.Style.FILL);
+            hat.setColor(0xFFFFFFFF);
+            r.set(x, y, x + w, y + h);
+            c.drawRoundRect(r, dp(10), dp(10), hat);
+            float cx = Math.max(x + dp(12), Math.min(x + w - dp(12), tx));
+            path.reset();
+            if (above) {
+                path.moveTo(cx - tail * 0.7f, y + h - 1);
+                path.lineTo(cx + tail * 0.7f, y + h - 1);
+                path.lineTo(cx, y + h + tail);
+            } else {
+                path.moveTo(cx - tail * 0.7f, y + 1);
+                path.lineTo(cx + tail * 0.7f, y + 1);
+                path.lineTo(cx, y - tail);
+            }
+            path.close();
+            c.drawPath(path, hat);
+            c.save();
+            c.translate(x + padX, y + padY);
+            sayLayout.draw(c);
+            c.restore();
         }
 
         /** Posición de 0 a 1 en su ida y vuelta (frena suave en las orillas). */

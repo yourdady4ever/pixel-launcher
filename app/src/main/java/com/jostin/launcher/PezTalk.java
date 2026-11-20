@@ -1,0 +1,202 @@
+package com.jostin.launcher;
+
+import android.content.Context;
+import android.os.SystemClock;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.List;
+import java.util.Locale;
+import java.util.Random;
+
+/**
+ * Lo que dice el pez: las mismas frases y reglas que el fondo de la PC y la página del celular
+ * (tools/personality.js). Las frases vienen en assets/pez/frases.json, sacadas tal cual del JS.
+ * Aquí siempre se habla como en el celular: chatter({pocket:true}), sin Godzilla ni música.
+ */
+final class PezTalk {
+    private static JSONObject L;
+    private static final Random R = new Random();
+    private static final List<String> recent = new ArrayList<>();
+    private static final List<Long> clickTimes = new ArrayList<>();
+    private static long appCool = 0;
+
+    /** Lo último de /apps.json (pc lo escribe la compu, cel lo escribe este teléfono). */
+    static JSONObject appsPc, appsCel;
+    /** Cuándo llegó un aviso de racha de Duolingo (solo se guarda la hora, nada del texto). */
+    static volatile long duoAlertAt = 0;
+
+    private PezTalk() {}
+
+    private static synchronized JSONObject phrases(Context c) {
+        if (L != null) return L;
+        try (InputStream in = c.getAssets().open("pez/frases.json")) {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            L = new JSONObject(out.toString("UTF-8"));
+        } catch (Exception e) {
+            L = new JSONObject();
+        }
+        return L;
+    }
+
+    /** Segundos desde que prendió el teléfono (el «T» del JS). */
+    private static double T() {
+        return SystemClock.elapsedRealtime() / 1000.0;
+    }
+
+    private static List<String> list(JSONArray a) {
+        List<String> out = new ArrayList<>();
+        if (a != null) for (int i = 0; i < a.length(); i++) out.add(a.optString(i));
+        return out;
+    }
+
+    private static List<String> get(Context c, String key) {
+        return list(phrases(c).optJSONArray(key));
+    }
+
+    private static List<String> sub(Context c, String group, String key) {
+        JSONObject o = phrases(c).optJSONObject(group);
+        return o == null ? new ArrayList<>() : list(o.optJSONArray(key));
+    }
+
+    private static <E> E pick(List<E> a) {
+        return a.get(R.nextInt(a.size()));
+    }
+
+    /** Elige una al azar sin repetir las últimas 24. */
+    static String pickFresh(List<String> a) {
+        if (a == null || a.isEmpty()) return "";
+        String s = pick(a);
+        for (int i = 0; i < 10 && recent.contains(s); i++) s = pick(a);
+        recent.add(s);
+        if (recent.size() > 24) recent.remove(0);
+        return s;
+    }
+
+    static boolean sleeping() {
+        int h = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
+        return h >= 1 && h < 7;
+    }
+
+    static List<String> seasonal(Context c) {
+        Calendar d = Calendar.getInstance();
+        int m = d.get(Calendar.MONTH), day = d.get(Calendar.DAY_OF_MONTH), wd = d.get(Calendar.DAY_OF_WEEK) - 1;
+        List<String> out = new ArrayList<>();
+        if (m == 11 && day < 24) {
+            int n = 24 - day;
+            String s = n > 1 ? "s" : "";
+            out.add("Faltan " + n + " día" + s + " para Nochebuena 🎄 ¿Ya tienes mi regalo?");
+            out.add("¡" + n + " día" + s + " para Nochebuena! Ya quiero mi croqueta navideña");
+        }
+        if (m == 11 && (day == 24 || day == 25)) {
+            out.add("¡FELIZ NAVIDAD! 🎄 Mi regalo para ti: existir. De nada.");
+            out.add("¡Navidad! Quiero tamales… de croqueta");
+        }
+        if (m == 11 && day == 31) out.add("¡Último día del año! Mi propósito: comer más 🍤");
+        if (m == 0 && day == 1) out.add("¡Feliz año nuevo! 🎆 Este año sí voy a hacer ejercicio. Mentira.");
+        if (wd == 1) out.addAll(get(c, "monday"));
+        if (wd == 5) out.addAll(get(c, "friday"));
+        if (wd == 0 || wd == 6) out.addAll(get(c, "weekend"));
+        return out;
+    }
+
+    static String greet(Context c, float food) {
+        int h = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
+        if (food < 30) return "¡Volviste! Tengo un hambre… 🍤";
+        return pickFresh(get(c, h < 5 ? "lateNight" : h < 12 ? "morning" : h < 19 ? "afternoon" : "evening"));
+    }
+
+    static String chatter(Context c, float food, float happy) {
+        int h = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
+        if (sleeping()) return pickFresh(get(c, "night"));
+        if (food < 10) return pickFresh(get(c, "starving"));
+        if (food < 30) return pickFresh(get(c, "hungry"));
+        if (happy < 30) return pickFresh(get(c, "bored"));
+        if (T() > appCool) {
+            String a = appLine(c);
+            if (a != null && R.nextDouble() < .6) {
+                appCool = (long) (T() + 150);
+                return a;
+            }
+        }
+        if ((h >= 23 || h < 2) && R.nextDouble() < .35) return pickFresh(get(c, "lateNight"));
+        List<List<String>> pools = new ArrayList<>();
+        List<String> talk = get(c, "talk"), pocket = get(c, "pocket");
+        pools.add(talk);
+        pools.add(talk);
+        pools.add(get(c, "jokes"));
+        pools.add(get(c, "facts"));
+        pools.add(get(c, "brag"));
+        pools.add(pocket);
+        pools.add(pocket);
+        if (happy > 85) pools.add(get(c, "happy"));
+        List<String> s = seasonal(c);
+        if (!s.isEmpty()) pools.add(s);
+        return pickFresh(pick(pools));
+    }
+
+    /** Al tocarlo; con 3 toques en 4 s se marea. */
+    static String clickLine(Context c) {
+        double now = T();
+        clickTimes.removeIf(t -> now - t / 1000.0 >= 4);
+        clickTimes.add((long) (now * 1000));
+        return pickFresh(get(c, clickTimes.size() >= 3 ? "poke" : "click"));
+    }
+
+    static String lookLine(Context c, String hat) {
+        List<String> a = new ArrayList<>(sub(c, "hat", hat));
+        a.addAll(get(c, "look"));
+        return pickFresh(a);
+    }
+
+    /** Lo que dice cuando lo cuidaron desde la compu (feed, play, look o talk). */
+    static String fromPc(Context c, String ev) {
+        return pickFresh(sub(c, "fromPc", ev));
+    }
+
+    static String fmtMin(int m) {
+        if (m < 60) return m + " minutos";
+        double h = Math.round(m / 6.0) / 10.0;
+        String n = h == Math.rint(h) ? String.valueOf((long) h) : String.format(Locale.US, "%.1f", h);
+        return n + " hora" + (h == 1 ? "" : "s");
+    }
+
+    private static List<String> fill(List<String> a, String app, int m) {
+        List<String> out = new ArrayList<>();
+        for (String x : a) out.add(x.replace("{app}", app).replace("{t}", fmtMin(m)));
+        return out;
+    }
+
+    /** Frases sobre tus apps (TikTok, racha de Duolingo y chismes de la compu), como appLine({pocket:true}). */
+    static String appLine(Context c) {
+        long now = System.currentTimeMillis();
+        List<String> out = new ArrayList<>();
+        JSONObject pc = appsPc, cel = appsCel;
+        int h = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
+        if (pc != null && !pc.optString("app", "").isEmpty() && now - pc.optLong("t", 0) < 5 * 60_000L) {
+            int m = pc.optInt("min", 0);
+            if (m >= 45) out.addAll(fill(get(c, "gossipPc"), pc.optString("app"), m));
+        }
+        if (cel != null && now - cel.optLong("t", 0) < 30 * 60_000L && cel.optInt("tiktok", 0) >= 45) {
+            out.addAll(fill(get(c, "celTikTok"), "TikTok", cel.optInt("tiktok", 0)));
+        }
+        boolean duoDone = (cel != null && cel.optBoolean("duo", false)) || (pc != null && pc.optBoolean("duo", false));
+        if (cel != null && now - cel.optLong("t", 0) < 6 * 3600_000L && !duoDone && h >= 18) out.addAll(get(c, "celDuo"));
+        return out.isEmpty() ? null : pickFresh(out);
+    }
+
+    /** Si Duolingo mandó aviso de racha hace poco, una frase de celDuo (una sola vez por aviso). */
+    static String duoAlert(Context c, long seenAlert) {
+        long at = duoAlertAt;
+        if (at == 0 || at == seenAlert || System.currentTimeMillis() - at > 30 * 60_000L) return null;
+        return pickFresh(get(c, "celDuo"));
+    }
+}

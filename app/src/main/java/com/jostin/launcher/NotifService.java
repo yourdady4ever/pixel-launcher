@@ -26,6 +26,13 @@ public class NotifService extends NotificationListenerService {
     @Override
     public void onNotificationPosted(StatusBarNotification sbn) {
         Media.notificationsChanged();
+        // Aviso de racha de Duolingo: el pez te lo recuerda. Solo se guarda la hora, no el texto
+        if ("com.duolingo".equals(sbn.getPackageName())) {
+            android.os.Bundle x = sbn.getNotification().extras;
+            String t = (String.valueOf(x.getCharSequence(android.app.Notification.EXTRA_TITLE)) + " "
+                    + x.getCharSequence(android.app.Notification.EXTRA_TEXT)).toLowerCase(java.util.Locale.ROOT);
+            if (t.contains("racha") || t.contains("streak")) PezTalk.duoAlertAt = System.currentTimeMillis();
+        }
     }
 
     @Override

@@ -177,6 +177,8 @@ public class MainActivity extends Activity implements Studio.Host, Drawer.Host, 
         LauncherApps la = getSystemService(LauncherApps.class);
         if (la != null) la.registerCallback(workApps, handler);
         handleDemo(getIntent());
+        // Si diste permiso, el pez se entera de tus apps (solo con la pantalla prendida)
+        AppUsage.attach(this);
         if (recovered) {
             handler.postDelayed(() -> Sheet.pill(this, backdrop, "Algo falló al abrir. Regresé a tu último diseño que funcionaba."), 1200);
         } else if (!Prefs.onboarded(this)) {
@@ -498,6 +500,7 @@ public class MainActivity extends Activity implements Studio.Host, Drawer.Host, 
         handler.post(ticker);
         handler.removeCallbacks(stable);
         handler.postDelayed(stable, 8000);
+        AppUsage.kick(this);
         Weather.refresh(this, false, n -> {
             home.tick();
         });
@@ -1183,6 +1186,13 @@ public class MainActivity extends Activity implements Studio.Host, Drawer.Host, 
             case "texto": next = () -> editText(it); break;
             case "foto": next = () -> pickGadgetPhoto(it); break;
             case "hora_mundial": next = () -> worldCity(it); break;
+            case "pez":
+                // Una sola vez: se explica para qué sirve leer tus apps
+                if (!AppUsage.enabled(this) && !Prefs.sp(this).getBoolean("apps_asked", false)) {
+                    Prefs.sp(this).edit().putBoolean("apps_asked", true).apply();
+                    next = () -> AppUsage.explain(this, backdrop);
+                }
+                break;
             case "agenda":
                 if (checkSelfPermission(Manifest.permission.READ_CALENDAR) != PackageManager.PERMISSION_GRANTED) next = this::requestCalendar;
                 break;
