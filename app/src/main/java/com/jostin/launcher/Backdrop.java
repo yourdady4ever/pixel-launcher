@@ -356,7 +356,7 @@ class Backdrop extends View implements SensorEventListener {
         sensors.unregisterListener(this);
         if (running && parallaxOn()) {
             Sensor g = sensors.getDefaultSensor(Sensor.TYPE_GRAVITY);
-            if (g != null) sensors.registerListener(this, g, SensorManager.SENSOR_DELAY_UI);
+            if (g != null) sensors.registerListener(this, g, SensorManager.SENSOR_DELAY_NORMAL);
         } else {
             gx = 0;
             gy = 7.5f;

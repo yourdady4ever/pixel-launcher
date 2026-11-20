@@ -191,6 +191,11 @@ final class PezTalk {
         }
     }
 
+    /** Último porcentaje de batería leído (-1 si no se sabe). */
+    static int battery() {
+        return battPct;
+    }
+
     /** Lo que vale la pena decir ya: cargador recién conectado o una notificación importante. */
     static String urgent(Context c) {
         long now = System.currentTimeMillis();

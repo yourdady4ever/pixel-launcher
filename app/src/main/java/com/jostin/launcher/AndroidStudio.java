@@ -58,6 +58,37 @@ final class AndroidStudio {
         }));
 
         // ---------- Botones ----------
+        // Poderes extra con el mismo permiso de arriba; todo se puede deshacer
+        col.addView(Ctl.section(a, "Poderes extra"));
+        if (!granted) col.addView(note(a, "Necesitan el mismo permiso de arriba (el comando de ADB)."));
+        col.addView(Ctl.toggle(a, "Pantalla en blanco y negro", "Todo el celular en grises, para que distraiga menos.", granted && Poderes.grayOn(a), on -> {
+            if (!Poderes.setGray(a, on)) Sheet.pill(a, h.backdrop(), "Falta el permiso; usa el comando de arriba");
+        }));
+        col.addView(Ctl.toggle(a, "Blanco y negro en modo estudio", "Se pone gris al empezar a estudiar y regresa al terminar.", Poderes.grayInStudy(a), on -> {
+            if (!granted) {
+                Sheet.pill(a, h.backdrop(), "Falta el permiso; usa el comando de arriba");
+                return;
+            }
+            Poderes.setGrayInStudy(a, on);
+        }));
+        col.addView(Ctl.toggle(a, "Animaciones más rápidas", "Las de todo Android a la mitad de tiempo.", granted && Poderes.fastOn(a), on -> {
+            if (!Poderes.setFast(a, on)) Sheet.pill(a, h.backdrop(), "Falta el permiso; usa el comando de arriba");
+        }));
+        if (granted && !Media.hasAccess(a)) {
+            col.addView(Ctl.action(a, Icons.CHECK, "Darme el acceso a notificaciones", "Música y avisos", v -> {
+                if (Poderes.grantNotifAccess(a)) Sheet.pill(a, h.backdrop(), "Listo, ya tengo acceso a las notificaciones");
+            }));
+        }
+        col.addView(Ctl.action(a, Icons.HISTORY, "Deshacer todo", "Como estaba", v -> Sheet.show(a, h.backdrop(), "¿Dejar Android como estaba?",
+                Sheet.item("Sí, deshacer todo", Icons.CHECK, () -> {
+                    int n = Poderes.undoAll(a);
+                    Sheet.pill(a, h.backdrop(), n == 0 ? "No había nada que deshacer" : "Listo, regresé " + n + " ajustes a como estaban");
+                }),
+                Sheet.item("Copiar el comando para quitar el permiso", Icons.SWAP, () -> {
+                    android.content.ClipboardManager cm = (android.content.ClipboardManager) a.getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+                    if (cm != null) cm.setPrimaryClip(android.content.ClipData.newPlainText("adb", Poderes.REVOKE));
+                    Sheet.pill(a, h.backdrop(), "Copiado; pégalo en la terminal de tu PC");
+                }))));
         col.addView(Ctl.section(a, "Botones en los ajustes rápidos"));
         col.addView(Ctl.action(a, Icons.PLUS, "Agregar los botones de Jostin", "3", v -> addTiles(a, h)));
         col.addView(note(a, "Modo estudio, Otro fondo y Jarvis, junto a los de Wi-Fi y Bluetooth en la barra de arriba. Si no aparecen, baja la barra, toca el lápiz y arrástralos."));

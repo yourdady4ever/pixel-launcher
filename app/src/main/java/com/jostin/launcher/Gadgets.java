@@ -1881,8 +1881,14 @@ final class Gadgets {
         final int fat, size;
         final long t;
         final String color, hat, fill, by, ev;
+        /** Experiencia (para el nivel), suciedad de la pecera y si se viste según la fecha. */
+        final double xp, dirt;
+        final boolean season;
 
         Pez(JSONObject o) {
+            xp = Math.max(0, o.optDouble("xp", 0));
+            double d = o.optDouble("dirt", 0);
+            dirt = Double.isNaN(d) ? 0 : d;
             food = num(o, "food");
             happy = num(o, "happy");
             fat = Math.max(0, Math.min(5, o.optInt("fat", 0)));
@@ -1897,6 +1903,19 @@ final class Gadgets {
             fill = f.isEmpty() ? "$" : f.substring(0, Character.charCount(f.codePointAt(0)));
             int s = look.optInt("size", 28);
             size = s <= 22 ? 22 : s >= 34 ? 34 : 28;
+            season = look.optBoolean("season", true);
+        }
+
+        /** El mayor L con 25·L·(L-1) <= xp. */
+        int level() {
+            int l = (int) Math.floor((1 + Math.sqrt(1 + 4 * (Double.isNaN(xp) ? 0 : xp) / 25.0)) / 2);
+            return Math.max(1, l);
+        }
+
+        /** La pecera se ensucia sola con el tiempo. */
+        float dirt(long now) {
+            double gone = t > 0 ? Math.max(0, now - t) / 1000.0 / 180 : 0;
+            return (float) Math.max(0, Math.min(100, dirt + gone));
         }
 
         private static double num(JSONObject o, String k) {
@@ -1933,7 +1952,7 @@ final class Gadgets {
         static final String APPS = "https://pez-estudio-default-rtdb.firebaseio.com/apps.json";
         private static final ExecutorService NET = Executors.newSingleThreadExecutor();
         private static final int GREEN = 0xFF3DFF7A, RED = 0xFFFF3B3B;
-        private static final long EVERY = 15_000;
+        private static final long EVERY = 30_000;
         private static final String[] PCT = new String[101];
         /** Corazón como letra (FE0E), no como emoji: así toma el color que le toca. */
         private static final String HEART = "♥︎";
@@ -2000,6 +2019,27 @@ final class Gadgets {
         private boolean slow;
         private int hourNow = -1;
         private long battAt;
+        private String seasonHat;
+        private int lvlFor = -1;
+        private String lvlText = "";
+        // Basurita de la pecera: posiciones fijas, se enseñan más mientras más sucia
+        private static final float[] SPX = new float[90], SPY = new float[90];
+        private static final String[] SPC = new String[90];
+        private static final int[] SPCOL = new int[90];
+        private static final boolean[] SPALGA = new boolean[90];
+
+        static {
+            Random rr = new Random(42);
+            String[] dots = {"·", ".", ",", "°", "·"}, algae = {"≈", "~", "≈"};
+            int[] cols = {0xFF7A8F3A, 0xFF8A7A3A, 0xFF6B7F4A};
+            for (int i = 0; i < 90; i++) {
+                SPALGA[i] = rr.nextFloat() < .3f;
+                SPX[i] = 0.03f + rr.nextFloat() * 0.94f;
+                SPY[i] = SPALGA[i] ? 0.75f + rr.nextFloat() * 0.25f : rr.nextFloat() * 0.9f;
+                SPC[i] = SPALGA[i] ? algae[rr.nextInt(3)] : dots[rr.nextInt(5)];
+                SPCOL[i] = SPALGA[i] ? 0xFF4F8F3A : cols[rr.nextInt(3)];
+            }
+        }
         // Ánimo del momento, ánimo temporal (enojado, mareado, sorprendido) y emotes que flotan
         private int tempMood = -1;
         private long tempUntil, lastTouch = SystemClock.uptimeMillis(), nextEmo, travelUp;
@@ -2037,6 +2077,7 @@ final class Gadgets {
             scan.setShader(new BitmapShader(b, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT));
             if (pez == null) pez = saved(a);
             PezTalk.preload(a);
+            PezAviso.mark(a);
             setContentDescription("Pez de estudio");
         }
 
@@ -2170,6 +2211,13 @@ final class Gadgets {
             apps.value = () -> AppUsage.enabled(act) ? "Sí" : "No";
             out.add(apps);
             out.add(Sheet.item("Tiempo en pantalla", Icons.HISTORY, () -> AppUsage.panel(act)));
+            Sheet.Item av = Sheet.item("Avisos cuando necesite algo", Widgets.BELL, () -> {
+                boolean off = !Prefs.sp(act).getBoolean("pez_notify_off", false);
+                Prefs.sp(act).edit().putBoolean("pez_notify_off", off).apply();
+                if (!off) act.askNotifications();
+            });
+            av.value = () -> Prefs.sp(act).getBoolean("pez_notify_off", false) ? "No" : "Sí";
+            out.add(av);
             out.add(Sheet.item("Actualizar ahora", Icons.HISTORY, () -> {
                 fetchedAt = 0;
                 fetch();
@@ -2273,8 +2321,7 @@ final class Gadgets {
             if (started && seen) {
                 removeCallbacks(frame);
                 if (still) postDelayed(frame, 1000);
-                else if (slow) postDelayed(frame, 33);
-                else postInvalidateOnAnimation();
+                else postOnAnimationDelayed(frame, slow || PezTalk.battery() >= 0 && PezTalk.battery() < 20 ? 30 : 22);
             } else {
                 removeCallbacks(frame);
             }
@@ -2317,7 +2364,11 @@ final class Gadgets {
             if (started && seen && !loading && now - fetchedAt > EVERY) fetch();
             if (now - sleepAt > 30_000) {
                 sleepAt = now;
-                hourNow = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
+                Calendar cal = Calendar.getInstance();
+                hourNow = cal.get(Calendar.HOUR_OF_DAY);
+                int mo = cal.get(Calendar.MONTH) + 1, dd = cal.get(Calendar.DAY_OF_MONTH);
+                seasonHat = mo == 10 && dd >= 25 ? "witch" : mo == 11 && dd <= 2 ? "flower" : mo == 9 && (dd == 15 || dd == 16) ? "sombrero"
+                        : mo == 2 && dd == 14 ? "heart" : (mo == 12 && dd == 31) || (mo == 1 && dd <= 2) ? "party" : mo == 12 ? "santa" : null;
             }
             asleep = hourNow >= 2 && hourNow < 6 && SystemClock.elapsedRealtime() > PezTalk.wakeUntil;
             Pez p = pez;
@@ -2370,7 +2421,12 @@ final class Gadgets {
             float moodW = ui.measureText(mood) + hs;
             ui.setTextAlign(Paint.Align.LEFT);
             ui.setColor(Ui.alpha(GREEN, 0xC0));
-            String h = "C:\\ESTUDIO\\PEZ.EXE";
+            int lv = p == null ? 0 : p.level();
+            if (lv != lvlFor) {
+                lvlFor = lv;
+                lvlText = lv > 0 ? "C:\\ESTUDIO\\PEZ.EXE  NV " + lv : "C:\\ESTUDIO\\PEZ.EXE";
+            }
+            String h = lvlText;
             int fit = ui.breakText(h, true, Math.max(0, x1 - x0 - moodW), null);
             c.drawText(h, 0, fit, x0, y0 + hs * 0.8f, ui);
             ui.clearShadowLayer();
@@ -2500,7 +2556,7 @@ final class Gadgets {
             // Gorro sobre la cabeza (encima del ojo)
             int eyeAt = dir < 0 ? 1 : len - 2;
             float headX = left + cw * (eyeAt + 0.5f);
-            drawHat(c, look.hat, headX, base - ts * 0.74f, cw, dir);
+            drawHat(c, look.season && seasonHat != null ? seasonHat : look.hat, headX, base - ts * 0.74f, cw, dir);
             fishBox.set(left - cw, base - ts * 1.6f, left + fw + cw, base + ts * 0.4f);
             String emo = MOOD_EMO[mk];
             if (!still && !emo.isEmpty() && up > nextEmo) {
@@ -2585,6 +2641,22 @@ final class Gadgets {
                     }
                 }
                 ui.setStyle(Paint.Style.FILL);
+            }
+            float dirt = p == null ? 0 : p.dirt(now);
+            if (dirt > 8) {
+                box.setStyle(Paint.Style.FILL);
+                box.setColor(Ui.alpha(0xFF465F1E, (int) (255 * Math.min(.28f, dirt / 360f))));
+                c.drawRect(x0, top, x1, floorY, box);
+            }
+            int specks = Math.min(SPX.length, Math.round(dirt * 0.9f));
+            if (specks > 0) {
+                ui.setStyle(Paint.Style.FILL);
+                ui.setTextAlign(Paint.Align.CENTER);
+                ui.setTextSize(sTs * 1.1f);
+                for (int i = 0; i < specks; i++) {
+                    ui.setColor(SPCOL[i]);
+                    c.drawText(SPC[i], x0 + (x1 - x0) * SPX[i], top + sTs + (floorY - top - sTs) * SPY[i], ui);
+                }
             }
             if (say != null && up < sayUntil) drawSay(c, L, T, W, H, headX, base - ts * 1.55f, base + ts * 0.35f);
         }
@@ -2844,6 +2916,106 @@ final class Gadgets {
                     c.drawCircle(hx, ky, s * 0.2f, hat);
                     break;
                 }
+                default:
+                    drawHat2(c, type, hx, hy, s, dir);
+                    break;
+            }
+        }
+
+        /** Coordenadas de la página (pez de 28 px, base del gorro en y = -12) pasadas al tamaño del widget. */
+        private void drawHat2(Canvas c, String type, float hx, float hy, float s, int dir) {
+            float u = s / 16.8f;
+            hat.setStyle(Paint.Style.FILL);
+            path.reset();
+            switch (type) {
+                case "party":
+                    hat.setColor(0xFF7C4DFF);
+                    path.moveTo(hx - 11 * u, hy);
+                    path.lineTo(hx + 11 * u, hy);
+                    path.lineTo(hx, hy - 28 * u);
+                    path.close();
+                    c.drawPath(path, hat);
+                    hat.setStyle(Paint.Style.STROKE);
+                    hat.setStrokeWidth(2 * u);
+                    hat.setColor(0xFFFFD54A);
+                    c.drawLine(hx - 7 * u, hy - 8 * u, hx + 7 * u, hy - 8 * u, hat);
+                    c.drawLine(hx - 4 * u, hy - 17 * u, hx + 4 * u, hy - 17 * u, hat);
+                    hat.setStyle(Paint.Style.FILL);
+                    hat.setColor(0xFFFF4FA0);
+                    c.drawCircle(hx, hy - 29 * u, 4 * u, hat);
+                    break;
+                case "wizard":
+                    hat.setColor(0xFF5E35B1);
+                    path.moveTo(hx - 15 * u, hy);
+                    path.lineTo(hx + 15 * u, hy);
+                    path.lineTo(hx - dir * 10 * u, hy - 38 * u);
+                    path.close();
+                    c.drawPath(path, hat);
+                    hat.setColor(0xFFFFD54A);
+                    hat.setTextAlign(Paint.Align.CENTER);
+                    hat.setTextSize(12 * u);
+                    c.drawText("★", hx - dir * 2 * u, hy - 10 * u, hat);
+                    break;
+                case "halo":
+                    hat.setStyle(Paint.Style.STROKE);
+                    hat.setStrokeWidth(3 * u);
+                    hat.setColor(0xFFFFD54A);
+                    r.set(hx - 14 * u, hy - 22 * u, hx + 14 * u, hy - 14 * u);
+                    c.drawOval(r, hat);
+                    hat.setStyle(Paint.Style.FILL);
+                    break;
+                case "horns":
+                    hat.setColor(0xFFE53935);
+                    path.moveTo(hx - 12 * u, hy);
+                    path.lineTo(hx - 15 * u, hy - 18 * u);
+                    path.lineTo(hx - 4 * u, hy - u);
+                    path.close();
+                    path.moveTo(hx + 12 * u, hy);
+                    path.lineTo(hx + 15 * u, hy - 18 * u);
+                    path.lineTo(hx + 4 * u, hy - u);
+                    path.close();
+                    c.drawPath(path, hat);
+                    break;
+                case "witch":
+                    hat.setColor(0xFF1B1B1B);
+                    r.set(hx - 22 * u, hy - 6 * u, hx + 22 * u, hy + 4 * u);
+                    c.drawOval(r, hat);
+                    path.moveTo(hx - 12 * u, hy - 2 * u);
+                    path.lineTo(hx + 12 * u, hy - 2 * u);
+                    path.lineTo(hx - dir * 14 * u, hy - 36 * u);
+                    path.close();
+                    c.drawPath(path, hat);
+                    hat.setColor(0xFF8E24AA);
+                    c.drawRect(hx - 12 * u, hy - 8 * u, hx + 12 * u, hy - 3 * u, hat);
+                    break;
+                case "flower":
+                    hat.setColor(0xFFFF8C00);
+                    for (int i = 0; i < 7; i++) {
+                        double a = i / 7.0 * Math.PI * 2;
+                        c.drawCircle(hx + (float) Math.cos(a) * 7 * u, hy - 12 * u + (float) Math.sin(a) * 7 * u, 5 * u, hat);
+                    }
+                    hat.setColor(0xFFFFCC00);
+                    c.drawCircle(hx, hy - 12 * u, 4 * u, hat);
+                    break;
+                case "sombrero":
+                    hat.setColor(0xFFC8A24A);
+                    r.set(hx - 28 * u, hy - 8 * u, hx + 28 * u, hy + 4 * u);
+                    c.drawOval(r, hat);
+                    r.set(hx - 11 * u, hy - 15 * u, hx + 11 * u, hy + 7 * u);
+                    c.drawArc(r, 180, 180, true, hat);
+                    hat.setColor(0xFF1B8A3A);
+                    c.drawRect(hx - 11 * u, hy - 7 * u, hx - 4 * u, hy - 4 * u, hat);
+                    hat.setColor(0xFFFFFFFF);
+                    c.drawRect(hx - 4 * u, hy - 7 * u, hx + 4 * u, hy - 4 * u, hat);
+                    hat.setColor(0xFFD32F2F);
+                    c.drawRect(hx + 4 * u, hy - 7 * u, hx + 11 * u, hy - 4 * u, hat);
+                    break;
+                case "heart":
+                    hat.setColor(0xFFFF4F7B);
+                    hat.setTextAlign(Paint.Align.CENTER);
+                    hat.setTextSize(22 * u);
+                    c.drawText("\u2665\uFE0E", hx, hy - 7 * u, hat);
+                    break;
                 default:
                     break;
             }

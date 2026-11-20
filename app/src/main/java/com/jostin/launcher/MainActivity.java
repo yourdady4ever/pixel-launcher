@@ -898,6 +898,13 @@ public class MainActivity extends Activity implements Studio.Host, Drawer.Host, 
         overridePendingTransition(Screen.anim(this, "screen_enter"), Screen.anim(this, "stay_out"));
     }
 
+    /** Android 13+ pide permiso para notificaciones (las del pez cuando tiene hambre). */
+    void askNotifications() {
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 430);
+        }
+    }
+
     void twoFingerSwipe() {
         runGesture(Prefs.sp(this).getInt("g_two", 0));
     }
@@ -1269,6 +1276,7 @@ public class MainActivity extends Activity implements Studio.Host, Drawer.Host, 
             case "foto": next = () -> pickGadgetPhoto(it); break;
             case "hora_mundial": next = () -> worldCity(it); break;
             case "pez":
+                askNotifications();
                 // Una sola vez: se explica para qué sirve leer tus apps
                 if (!AppUsage.enabled(this) && !Prefs.sp(this).getBoolean("apps_asked", false)) {
                     Prefs.sp(this).edit().putBoolean("apps_asked", true).apply();
@@ -1849,7 +1857,11 @@ public class MainActivity extends Activity implements Studio.Host, Drawer.Host, 
             if (g instanceof Gadgets.ClockG && ((Gadgets.ClockG) g).cv != null) ((Gadgets.ClockG) g).cv.setStudy(c);
             else if (g instanceof Gadgets.StudyG) g.tick();
         });
-        if (on != wasStudying) refreshDock();
+        if (on != wasStudying) {
+            refreshDock();
+            // Blanco y negro en el modo estudio, si lo activaste
+            Poderes.onStudy(this, on);
+        }
         wasStudying = on;
     }
 

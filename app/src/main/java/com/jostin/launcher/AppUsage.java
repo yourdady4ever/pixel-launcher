@@ -42,6 +42,8 @@ final class AppUsage {
     private static final ExecutorService NET = Executors.newSingleThreadExecutor();
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static Context app;
+    private static long pezAt, putAt;
+    private static String putLast = "";
     private static boolean attached;
 
     private static final Runnable tick = new Runnable() {
@@ -51,6 +53,11 @@ final class AppUsage {
             if (app == null || !screenOn(app)) return;
             // Se lee si hay permiso y algo que hacer con eso: compartir con el pez o vigilar un límite
             if (granted(app) && (wanted(app) || limits(app).length() > 0)) report(app);
+            // En la misma vuelta: ¿el pez necesita algo? (red fuera del hilo principal)
+            if (PezAviso.on(app) && System.currentTimeMillis() - pezAt > 20 * 60_000L) {
+                pezAt = System.currentTimeMillis();
+                NET.execute(() -> PezAviso.check(app));
+            }
             MAIN.postDelayed(this, EVERY);
         }
     };
@@ -135,8 +142,14 @@ final class AppUsage {
                 if (!wanted(c)) return;
                 // Si Duolingo avisó de la racha después de abrirlo, todavía no está hecha
                 boolean duo = duoLast >= from && duoLast > PezTalk.duoAlertAt;
+                int tk = (int) (tiktokMs / 60_000L);
+                String same = tk + "/" + duo;
+                // Sin cambios, se sube cuando mucho cada 15 min (para que el pez sepa que sigue vigente)
+                if (same.equals(putLast) && now - putAt < 15 * 60_000L) return;
+                putLast = same;
+                putAt = now;
                 JSONObject o = new JSONObject();
-                o.put("tiktok", (int) (tiktokMs / 60_000L));
+                o.put("tiktok", tk);
                 o.put("duo", duo);
                 o.put("t", now);
                 put(URL_CEL, o.toString());
