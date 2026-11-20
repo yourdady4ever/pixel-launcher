@@ -8,7 +8,9 @@ import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.BitmapShader;
 import android.graphics.Canvas;
+import android.graphics.Color;
 import android.graphics.LinearGradient;
 import android.graphics.Outline;
 import android.graphics.Paint;
@@ -22,6 +24,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.provider.CalendarContract;
 import android.provider.Settings;
 import android.text.TextUtils;
@@ -144,6 +147,14 @@ final class Gadgets {
         p.cubicTo(11f, 17f, 13f, 17f, 14f, 12f);
         p.cubicTo(15f, 7f, 17.5f, 7f, 19f, 11f);
     };
+    static final Icons.Shape FISH = p -> {
+        p.addOval(new RectF(3f, 7.5f, 16f, 16.5f), Path.Direction.CW);
+        p.moveTo(16f, 12f);
+        p.lineTo(21f, 8f);
+        p.lineTo(21f, 16f);
+        p.close();
+        p.addCircle(7f, 11f, 0.4f, Path.Direction.CW);
+    };
 
     static final Spec[] SPECS = {
             new Spec("reloj", "Reloj", "Día, fecha, hora y clima", Icons.HISTORY, 4, 2, 2, 1, false),
@@ -158,6 +169,7 @@ final class Gadgets {
             new Spec("pendientes", "Pendientes", "Lista que puedes palomear", Icons.TASKS, 4, 2, 2, 1, false),
             new Spec("estudio", "Estudio", "Modo enfoque con temporizador", Icons.FOCUS, 2, 1, 1, 1, false),
             new Spec("jarvis", "Jarvis", "Pregúntale lo que sea a Claude", Icons.SPARK, 2, 1, 1, 1, false),
+            new Spec("pez", "Pez de estudio", "Tu pez en vivo, el mismo de la PC", FISH, 4, 2, 2, 1, false),
             new Spec("atajo", "Atajo", "Calculadora, obra, linterna y más", Icons.CALC, 2, 1, 1, 1, false),
             new Spec("cuenta", "Cuenta regresiva", "Días que faltan para una fecha", Icons.HISTORY, 2, 1, 1, 1, false),
             new Spec("sistema", "Sistema", "Batería, almacenamiento y memoria", Icons.SHAPES, 2, 2, 2, 1, false),
@@ -196,6 +208,7 @@ final class Gadgets {
                 case "pendientes": g = new TasksG(a, it); break;
                 case "estudio": g = new StudyG(a, it); break;
                 case "jarvis": g = new JarvisG(a, it); break;
+                case "pez": g = new PezG(a, it); break;
                 case "atajo": g = new ShortcutG(a, it); break;
                 case "cuenta": g = new CountG(a, it); break;
                 case "sistema": g = new SystemG(a, it); break;
@@ -774,6 +787,9 @@ final class Gadgets {
         private final float[] cur = new float[28], target = new float[28];
         private final Random rnd = new Random();
         private boolean anim;
+        private Shader shader;
+        private float shaderH = -1;
+        private int shaderColor;
 
         WaveG(MainActivity a, HomeModel.Item it) {
             super(a, it);
@@ -824,7 +840,12 @@ final class Gadgets {
             int n = cur.length;
             float w = getWidth() - getPaddingLeft() - getPaddingRight(), h = getHeight() - getPaddingTop() - getPaddingBottom();
             float slot = w / n, bw = slot * 0.55f;
-            p.setShader(new LinearGradient(0, getPaddingTop(), 0, getPaddingTop() + h, Theme.accent, Ui.alpha(Theme.accent, 0x55), Shader.TileMode.CLAMP));
+            if (shader == null || shaderH != h || shaderColor != Theme.accent) {
+                shaderH = h;
+                shaderColor = Theme.accent;
+                shader = new LinearGradient(0, getPaddingTop(), 0, getPaddingTop() + h, Theme.accent, Ui.alpha(Theme.accent, 0x55), Shader.TileMode.CLAMP);
+            }
+            p.setShader(shader);
             for (int i = 0; i < n; i++) {
                 if (anim) {
                     if (Math.abs(cur[i] - target[i]) < 0.03f) target[i] = 0.15f + rnd.nextFloat() * 0.85f;
@@ -863,6 +884,7 @@ final class Gadgets {
     }
 
     static final class MonthView extends View {
+        private static final SimpleDateFormat MONTH = new SimpleDateFormat("MMMM yyyy", ES);
         private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
 
         MonthView(Context c) {
@@ -887,7 +909,7 @@ final class Gadgets {
             p.setTextSize(Math.min(fs * 0.95f, Ui.dp(getContext(), 13)));
             p.setLetterSpacing(0.15f);
             p.setColor(Ui.MUTED);
-            c.drawText(new SimpleDateFormat("MMMM yyyy", ES).format(now.getTime()).toUpperCase(ES), Ui.dp(getContext(), 2), headH * 0.7f, p);
+            c.drawText(MONTH.format(now.getTime()).toUpperCase(ES), Ui.dp(getContext(), 2), headH * 0.7f, p);
             p.setLetterSpacing(0);
             p.setTextAlign(Paint.Align.CENTER);
             p.setTextSize(fs);
@@ -1843,6 +1865,550 @@ final class Gadgets {
                 }
                 MAIN.post(done);
             });
+        }
+    }
+
+    // ==================== Pez de estudio ====================
+
+    /** Lo que trae /pez.json. El launcher solo lo lee: nunca escribe en la base. */
+    static final class Pez {
+        final double food, happy;
+        final int fat, size;
+        final long t;
+        final String color, hat, fill, by, ev;
+
+        Pez(JSONObject o) {
+            food = num(o, "food");
+            happy = num(o, "happy");
+            fat = Math.max(0, Math.min(5, o.optInt("fat", 0)));
+            t = o.optLong("t", 0);
+            by = str(o, "by", "");
+            ev = str(o, "ev", "");
+            JSONObject look = o.optJSONObject("look");
+            if (look == null) look = new JSONObject();
+            color = str(look, "color", "#ffb02e");
+            hat = str(look, "hat", "none");
+            String f = str(look, "fill", "$");
+            fill = f.isEmpty() ? "$" : f.substring(0, Character.charCount(f.codePointAt(0)));
+            int s = look.optInt("size", 28);
+            size = s <= 22 ? 22 : s >= 34 ? 34 : 28;
+        }
+
+        private static double num(JSONObject o, String k) {
+            double v = o.optDouble(k, 50);
+            return Double.isNaN(v) ? 50 : v;
+        }
+
+        private static String str(JSONObject o, String k, String def) {
+            if (!o.has(k) || o.isNull(k)) return def;
+            return o.optString(k, def).trim();
+        }
+
+        /** Panza y ánimo bajan solos desde la última vez que alguien lo cuidó (t). */
+        float food(long now) {
+            return decay(food, now, 90);
+        }
+
+        float happy(long now) {
+            return decay(happy, now, 110);
+        }
+
+        private float decay(double v, long now, double secsPerPoint) {
+            double gone = t > 0 ? Math.max(0, now - t) / 1000.0 / secsPerPoint : 0;
+            return (float) Math.max(0, Math.min(100, v - gone));
+        }
+    }
+
+    /**
+     * El pez de estudio en una terminal verde: el mismo del fondo de la PC y de la página del
+     * celular. Lee /pez.json cada ~15 s solo mientras se ve; sin internet se queda el último.
+     */
+    static final class PezG extends Gadget {
+        static final String DATA = "https://pez-estudio-default-rtdb.firebaseio.com/pez.json";
+        private static final ExecutorService NET = Executors.newSingleThreadExecutor();
+        private static final int GREEN = 0xFF3DFF7A, RED = 0xFFFF3B3B;
+        private static final long EVERY = 15_000;
+        private static final String[] PCT = new String[101];
+        private static final Pez BLANK = new Pez(new JSONObject());
+
+        static {
+            for (int i = 0; i <= 100; i++) PCT[i] = i + "%";
+        }
+
+        // Compartido por todos los peces de inicio: una sola descarga para todos
+        private static Pez pez;
+        private static String raw;
+        private static long fetchedAt;
+        private static boolean loading, offline;
+
+        private final Paint box = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint scan = new Paint();
+        private final Paint fish = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint ui = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint hat = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Path path = new Path();
+        private final RectF r = new RectF();
+        private final android.graphics.Rect vis = new android.graphics.Rect();
+        private final float[] hsv = {0f, 0.75f, 1f};
+        private final Runnable frame = this::invalidate;
+        /** Ancho de una letra de la fuente monoespaciada por cada punto de tamaño. */
+        private final float adv;
+        private boolean still, asleep;
+        private long sleepAt;
+        // El pez en celdas (una letra por celda); solo se rehace si cambia algo
+        private String[] cells = new String[0];
+        private int cDir, cN = -1;
+        private String cEye = "", cFill = "";
+        private String colorOf;
+        private int colorVal = 0xFFFFB02E;
+        private Pez headFor;
+        private boolean headMade, headOffline, headAsleep;
+        private String head = "";
+
+        PezG(MainActivity a, HomeModel.Item it) {
+            super(a, it);
+            setWillNotDraw(false);
+            Typeface mono = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD);
+            fish.setTypeface(mono);
+            fish.setTextAlign(Paint.Align.CENTER);
+            fish.setTextSize(100);
+            adv = fish.measureText("0") / 100f;
+            ui.setTypeface(mono);
+            // Rayitas de monitor viejo
+            Bitmap b = Bitmap.createBitmap(1, Math.max(3, dp(3)), Bitmap.Config.ARGB_8888);
+            b.setPixel(0, 0, Ui.alpha(GREEN, 0x12));
+            scan.setShader(new BitmapShader(b, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT));
+            if (pez == null) pez = saved(a);
+            setContentDescription("Pez de estudio");
+        }
+
+        private static Pez saved(Context c) {
+            String s = Prefs.sp(c).getString("pez_last", null);
+            if (s == null) return null;
+            try {
+                Pez p = new Pez(new JSONObject(s));
+                raw = s;
+                return p;
+            } catch (Exception e) {
+                return null;
+            }
+        }
+
+        @Override
+        boolean glassDefault() {
+            return false;
+        }
+
+        /** Es su propio cuadro de terminal: nunca lleva vidrio. */
+        @Override
+        boolean hasGlass() {
+            return false;
+        }
+
+        @Override
+        void build() {
+            setOnClickListener(v -> open());
+        }
+
+        private void open() {
+            Sound.play(this, Sound.OPEN);
+            Screen.open(act, new Intent(act, PezActivity.class));
+        }
+
+        @Override
+        void options(List<Sheet.Item> out) {
+            out.add(Sheet.item("Abrir el pez", FISH, this::open));
+            out.add(Sheet.item("Actualizar ahora", Icons.HISTORY, () -> {
+                fetchedAt = 0;
+                fetch();
+            }));
+        }
+
+        @Override
+        void start() {
+            super.start();
+            // Con animaciones reducidas o el ahorro de batería, el pez se queda quieto
+            android.os.PowerManager pm = (android.os.PowerManager) act.getSystemService(Context.POWER_SERVICE);
+            still = Prefs.motion(act) >= 2 || (pm != null && pm.isPowerSaveMode());
+            sleepAt = 0;
+            invalidate();
+        }
+
+        @Override
+        void stop() {
+            super.stop();
+            removeCallbacks(frame);
+        }
+
+        /** Descarga en su propio hilo, nunca en el principal; con error se queda el último pez. */
+        private void fetch() {
+            if (loading) return;
+            loading = true;
+            fetchedAt = System.currentTimeMillis();
+            Context app = act.getApplicationContext();
+            NET.execute(() -> {
+                String got = null;
+                Pez p = null;
+                try {
+                    got = Weather.get(DATA);
+                    p = new Pez(new JSONObject(got));
+                } catch (Throwable ignored) {
+                    // sin internet, base vacía o respuesta rara
+                }
+                final String body = got;
+                final Pez fresh = p;
+                MAIN.post(() -> {
+                    loading = false;
+                    offline = fresh == null;
+                    if (fresh != null) {
+                        pez = fresh;
+                        // Se guarda solo si cambió, para no escribir en disco cada 15 s
+                        if (!body.equals(raw)) {
+                            raw = body;
+                            Prefs.sp(app).edit().putString("pez_last", body).apply();
+                        }
+                        long now = System.currentTimeMillis();
+                        setContentDescription("Pez de estudio: panza " + Math.round(fresh.food(now)) + "%, ánimo " + Math.round(fresh.happy(now)) + "%");
+                    }
+                    invalidate();
+                });
+            });
+        }
+
+        @Override
+        protected void onDraw(Canvas c) {
+            super.onDraw(c);
+            // En la página de al lado sigue "visible" para Android, pero fuera de la pantalla
+            boolean seen = isShown() && getGlobalVisibleRect(vis);
+            try {
+                paint(c, seen);
+            } catch (Throwable ignored) {
+                // un dato raro no debe tumbar la pantalla de inicio
+            }
+            // Solo se anima mientras se ve; fuera de la pantalla revisa despacito por si vuelves
+            if (started && isShown()) {
+                removeCallbacks(frame);
+                postDelayed(frame, !seen ? 500 : still ? 1000 : 50);
+            }
+        }
+
+        @Override
+        public void onVisibilityAggregated(boolean visible) {
+            super.onVisibilityAggregated(visible);
+            if (visible) invalidate();
+            else removeCallbacks(frame);
+        }
+
+        private void paint(Canvas c, boolean seen) {
+            float L = getPaddingLeft(), T = getPaddingTop();
+            float W = getWidth() - L - getPaddingRight(), H = getHeight() - T - getPaddingBottom();
+            if (W <= 0 || H <= 0) return;
+            long now = System.currentTimeMillis(), up = SystemClock.uptimeMillis();
+            if (started && seen && !loading && now - fetchedAt > EVERY) fetch();
+            if (now - sleepAt > 30_000) {
+                sleepAt = now;
+                int hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
+                asleep = hour >= 1 && hour < 7;
+            }
+            Pez p = pez;
+            float food = p == null ? 100 : p.food(now), happy = p == null ? 100 : p.happy(now);
+            boolean alert = p != null && (food < 25 || happy < 25);
+
+            // Cuadro negro de terminal, con marco rojo que parpadea si necesita algo
+            float rad = dp(20);
+            r.set(L, T, L + W, T + H);
+            box.setStyle(Paint.Style.FILL);
+            box.setColor(0xF7020604);
+            c.drawRoundRect(r, rad, rad, box);
+            c.drawRoundRect(r, rad, rad, scan);
+            float bw = Math.max(1f, dp(1.2f));
+            r.inset(bw / 2f, bw / 2f);
+            box.setStyle(Paint.Style.STROKE);
+            box.setStrokeWidth(bw);
+            box.setColor(Ui.alpha(GREEN, 0x55));
+            c.drawRoundRect(r, rad, rad, box);
+            if (alert && (up / 450) % 2 == 0) {
+                float aw = Math.max(2f, dp(2.6f));
+                r.set(L + aw / 2f, T + aw / 2f, L + W - aw / 2f, T + H - aw / 2f);
+                box.setStrokeWidth(aw);
+                box.setColor(RED);
+                c.drawRoundRect(r, rad, rad, box);
+            }
+
+            // Encabezado: lo último que pasó (y un ! si tiene hambre o está triste)
+            float pad = Math.min(dp(14), Math.min(W, H) * 0.1f);
+            float x0 = L + pad, x1 = L + W - pad, y0 = T + pad, y1 = T + H - pad;
+            float hs = Math.max(dp(8), Math.min(dp(11), H * 0.1f));
+            ui.setStyle(Paint.Style.FILL);
+            ui.setTextSize(hs);
+            ui.setTextAlign(Paint.Align.LEFT);
+            ui.setColor(Ui.alpha(GREEN, 0xB3));
+            ui.setShadowLayer(hs * 0.6f, 0, 0, Ui.alpha(GREEN, 0x66));
+            String h = header(p);
+            float bang = alert ? hs * 1.6f : 0;
+            int fit = ui.breakText(h, true, Math.max(0, x1 - x0 - bang), null);
+            c.drawText(h, 0, fit, x0, y0 + hs * 0.8f, ui);
+            if (alert) {
+                ui.setTextAlign(Paint.Align.RIGHT);
+                ui.setTextSize(hs * 1.7f);
+                ui.setColor(RED);
+                ui.setShadowLayer(hs, 0, 0, RED);
+                c.drawText("!", x1, y0 + hs * 1.1f, ui);
+            }
+            ui.clearShadowLayer();
+
+            // Barras abajo: en una fila si el widget es chaparrito
+            boolean compact = H < dp(118);
+            float ls = Math.max(dp(7), Math.min(dp(10), H * 0.085f));
+            float barH = Math.max(dp(4), ls * 0.75f);
+            float rowH = Math.max(ls, barH) + dp(5);
+            float barsTop;
+            if (compact) {
+                float half = (x1 - x0 - dp(10)) / 2f;
+                bar(c, "PANZA", food, x0, y1 - rowH / 2f, half, ls, barH, p != null);
+                bar(c, "ÁNIMO", happy, x0 + half + dp(10), y1 - rowH / 2f, half, ls, barH, p != null);
+                barsTop = y1 - rowH;
+            } else {
+                bar(c, "PANZA", food, x0, y1 - rowH * 1.5f, x1 - x0, ls, barH, p != null);
+                bar(c, "ÁNIMO", happy, x0, y1 - rowH * 0.5f, x1 - x0, ls, barH, p != null);
+                barsTop = y1 - rowH * 2f;
+            }
+
+            // El pez
+            float top = y0 + hs * 1.4f, areaH = barsTop - dp(2) - top, areaW = x1 - x0;
+            if (areaH < dp(10) || areaW < dp(20)) return;
+            Pez look = p != null ? p : BLANK;
+            int n = 3 + look.fat, len = 7 + n;
+            String eye = asleep ? "-" : p == null ? "°" : food < 20 ? "@" : happy > 75 ? "^" : happy < 25 ? ";" : "°";
+            // El pez más gordo (15 celdas) cabe a lo ancho según el tamaño que eligieron
+            float k = look.size == 22 ? 0.6f : look.size == 34 ? 0.92f : 0.76f;
+            float ts = Math.min(areaW * k / (15 * adv), areaH * 0.5f);
+            if (ts < 4) return;
+            fish.setTextSize(ts);
+            float cw = adv * ts, fw = len * cw;
+            float travel = Math.max(0, areaW - fw);
+            long period = asleep ? 60_000 : 16_000;
+            int dir = still ? -1 : dirAt(up, period);
+            float left = x0 + travel * (still ? 0.5f : posAt(up, period));
+            float bob = still ? 0 : (float) Math.sin(up / 1000.0 * (asleep ? 1.1 : 2.4)) * cw * 0.22f;
+            float base = top + areaH * 0.5f + ts * 0.62f + bob;
+            cells(dir, eye, look.fill, n);
+            boolean rainbow = "rainbow".equalsIgnoreCase(look.color);
+            int col = rainbow ? GREEN : color(look.color);
+            fish.setShadowLayer(ts * 0.35f, 0, 0, col);
+            for (int i = 0; i < len; i++) {
+                int ci = col;
+                if (rainbow) {
+                    hsv[0] = ((up / 1000f) * 70f + i * 26f) % 360f;
+                    ci = Color.HSVToColor(hsv);
+                    fish.setShadowLayer(ts * 0.35f, 0, 0, ci);
+                }
+                fish.setColor(ci);
+                c.drawText(cells[i], left + cw * (i + 0.5f), base, fish);
+            }
+            fish.clearShadowLayer();
+
+            // Gorro sobre la cabeza (encima del ojo)
+            int eyeAt = dir < 0 ? 1 : len - 2;
+            drawHat(c, look.hat, left + cw * (eyeAt + 0.5f), base - ts * 0.74f, cw, dir);
+
+            // Burbujas que salen de la boca (o zetas si está dormido)
+            if (!still) {
+                long per = asleep ? 3600 : 2600;
+                for (int b = 0; b < 3; b++) {
+                    long age = Math.floorMod(up + b * per / 3, per);
+                    float a = age / (float) per;
+                    long born = up - age;
+                    int bd = dirAt(born, period);
+                    float bl = x0 + travel * posAt(born, period);
+                    float mouth = bd > 0 ? bl + fw : bl;
+                    float bx = mouth + bd * cw * 0.4f + (float) Math.sin(a * 6.0 + b) * cw * 0.3f;
+                    float by = base - ts * 0.45f - a * areaH * 0.55f;
+                    if (by < top) continue;
+                    int alpha = (int) (0xAA * (1f - a));
+                    if (asleep) {
+                        ui.setStyle(Paint.Style.FILL);
+                        ui.setTextAlign(Paint.Align.CENTER);
+                        ui.setTextSize(ts * (0.35f + a * 0.3f));
+                        ui.setColor(Ui.alpha(GREEN, alpha));
+                        c.drawText("z", bx, by, ui);
+                    } else {
+                        ui.setStyle(Paint.Style.STROKE);
+                        ui.setStrokeWidth(Math.max(1f, cw * 0.07f));
+                        ui.setColor(Ui.alpha(GREEN, alpha));
+                        c.drawCircle(bx, by, cw * (0.12f + a * 0.12f), ui);
+                    }
+                }
+                ui.setStyle(Paint.Style.FILL);
+            }
+        }
+
+        /** Posición de 0 a 1 en su ida y vuelta (frena suave en las orillas). */
+        private static float posAt(long t, long period) {
+            float ph = Math.floorMod(t, period) / (float) period;
+            float f = ph < 0.5f ? ph * 2f : 2f - ph * 2f;
+            return f * f * (3f - 2f * f);
+        }
+
+        /** 1 si va hacia la derecha, -1 si va hacia la izquierda. */
+        private static int dirAt(long t, long period) {
+            return Math.floorMod(t, period) < period / 2 ? 1 : -1;
+        }
+
+        /** Mirando a la izquierda: <°$$$)))><   ·   a la derecha: ><((($$$°> */
+        private void cells(int dir, String eye, String fill, int n) {
+            if (dir == cDir && n == cN && eye.equals(cEye) && fill.equals(cFill)) return;
+            cDir = dir;
+            cN = n;
+            cEye = eye;
+            cFill = fill;
+            String[] a = new String[7 + n];
+            int k = 0;
+            if (dir < 0) {
+                a[k++] = "<";
+                a[k++] = eye;
+                for (int i = 0; i < n; i++) a[k++] = fill;
+                a[k++] = ")";
+                a[k++] = ")";
+                a[k++] = ")";
+                a[k++] = ">";
+                a[k] = "<";
+            } else {
+                a[k++] = ">";
+                a[k++] = "<";
+                a[k++] = "(";
+                a[k++] = "(";
+                a[k++] = "(";
+                for (int i = 0; i < n; i++) a[k++] = fill;
+                a[k++] = eye;
+                a[k] = ">";
+            }
+            cells = a;
+        }
+
+        private int color(String s) {
+            if (!s.equals(colorOf)) {
+                colorOf = s;
+                try {
+                    colorVal = Color.parseColor(s) | 0xFF000000;
+                } catch (Exception e) {
+                    colorVal = 0xFFFFB02E;
+                }
+            }
+            return colorVal;
+        }
+
+        private String header(Pez p) {
+            if (headMade && headFor == p && headOffline == offline && headAsleep == asleep) return head;
+            headMade = true;
+            headFor = p;
+            headOffline = offline;
+            headAsleep = asleep;
+            String s;
+            if (p == null) s = offline ? "> sin conexión" : "> buscando al pez…";
+            else if (asleep) s = "> zzz… está dormido";
+            else if (!p.ev.isEmpty()) s = "> " + (p.by.isEmpty() ? "" : p.by + ": ") + p.ev;
+            else s = "> todo tranquilo";
+            if (p != null && offline) s += "  · sin conexión";
+            head = s;
+            return s;
+        }
+
+        /** Barra de 10 bloques con su nombre y porcentaje; en rojo si va abajo de 25. */
+        private void bar(Canvas c, String label, float v, float x, float cy, float w, float ls, float bh, boolean known) {
+            boolean low = known && v < 25;
+            ui.setStyle(Paint.Style.FILL);
+            ui.setTextSize(ls);
+            ui.setTextAlign(Paint.Align.LEFT);
+            ui.setColor(Ui.alpha(GREEN, 0xCC));
+            float base = cy + ls * 0.36f;
+            c.drawText(label, x, base, ui);
+            float lw = ui.measureText("ÁNIMO") + ls * 0.6f, pw = ui.measureText("100%") + ls * 0.4f;
+            ui.setTextAlign(Paint.Align.RIGHT);
+            ui.setColor(low ? RED : Ui.alpha(GREEN, 0xCC));
+            c.drawText(known ? PCT[Math.max(0, Math.min(100, Math.round(v)))] : "--", x + w, base, ui);
+            float bx0 = x + lw, bx1 = x + w - pw;
+            if (bx1 - bx0 < dp(10)) return;
+            int n = 10;
+            float gap = Math.max(1f, dp(2));
+            float sw = (bx1 - bx0 - gap * (n - 1)) / n;
+            int on = known ? (int) Math.ceil(v / 10f) : 0;
+            box.setStyle(Paint.Style.FILL);
+            for (int i = 0; i < n; i++) {
+                float sx = bx0 + i * (sw + gap);
+                box.setColor(i < on ? (low ? RED : GREEN) : Ui.alpha(GREEN, 0x1F));
+                c.drawRect(sx, cy - bh / 2f, sx + sw, cy + bh / 2f, box);
+            }
+        }
+
+        private void drawHat(Canvas c, String type, float hx, float hy, float s, int dir) {
+            hat.setStyle(Paint.Style.FILL);
+            path.reset();
+            switch (type) {
+                case "santa": {
+                    // Triángulo rojo con la punta caída hacia atrás, banda blanca y pompón
+                    float tipX = hx - dir * s * 0.95f, tipY = hy - s * 1.45f;
+                    hat.setColor(0xFFE02C2C);
+                    path.moveTo(hx - s * 0.8f, hy);
+                    path.lineTo(hx + s * 0.8f, hy);
+                    path.lineTo(tipX, tipY);
+                    path.close();
+                    c.drawPath(path, hat);
+                    hat.setColor(0xFFFFFFFF);
+                    r.set(hx - s * 0.95f, hy - s * 0.24f, hx + s * 0.95f, hy + s * 0.12f);
+                    c.drawRoundRect(r, s * 0.16f, s * 0.16f, hat);
+                    c.drawCircle(tipX, tipY, s * 0.24f, hat);
+                    break;
+                }
+                case "crown": {
+                    // Corona dorada en zigzag
+                    float w = s * 0.8f, h = s * 0.95f;
+                    hat.setColor(0xFFFFD54A);
+                    path.moveTo(hx - w, hy);
+                    path.lineTo(hx - w, hy - h);
+                    path.lineTo(hx - w * 0.5f, hy - h * 0.45f);
+                    path.lineTo(hx, hy - h);
+                    path.lineTo(hx + w * 0.5f, hy - h * 0.45f);
+                    path.lineTo(hx + w, hy - h);
+                    path.lineTo(hx + w, hy);
+                    path.close();
+                    c.drawPath(path, hat);
+                    hat.setColor(0xFFE02C2C);
+                    c.drawCircle(hx, hy - h * 0.22f, s * 0.11f, hat);
+                    break;
+                }
+                case "cap": {
+                    // Gorra azul con la visera hacia donde mira
+                    hat.setColor(0xFF2A6CFF);
+                    r.set(hx - s * 0.75f, hy - s * 0.85f, hx + s * 0.75f, hy + s * 0.85f);
+                    path.arcTo(r, 180, 180, true);
+                    path.close();
+                    c.drawPath(path, hat);
+                    float v0 = hx + dir * s * 0.45f, v1 = hx + dir * s * 1.35f;
+                    r.set(Math.min(v0, v1), hy - s * 0.18f, Math.max(v0, v1), hy + s * 0.02f);
+                    c.drawRoundRect(r, s * 0.1f, s * 0.1f, hat);
+                    c.drawCircle(hx, hy - s * 0.85f, s * 0.1f, hat);
+                    break;
+                }
+                case "bow": {
+                    // Moño rosa: dos alas y el nudo
+                    float ky = hy - s * 0.35f, ww = s * 0.85f, wh = s * 0.5f;
+                    hat.setColor(0xFFFF4FA0);
+                    path.moveTo(hx, ky);
+                    path.lineTo(hx - ww, ky - wh);
+                    path.lineTo(hx - ww, ky + wh);
+                    path.close();
+                    path.moveTo(hx, ky);
+                    path.lineTo(hx + ww, ky - wh);
+                    path.lineTo(hx + ww, ky + wh);
+                    path.close();
+                    c.drawPath(path, hat);
+                    c.drawCircle(hx, ky, s * 0.2f, hat);
+                    break;
+                }
+                default:
+                    break;
+            }
         }
     }
 

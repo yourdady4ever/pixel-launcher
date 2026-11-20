@@ -96,7 +96,8 @@ final class Weather {
         }).start();
     }
 
-    private static String get(String u) throws Exception {
+    /** GET sencillo con tiempo límite (también lo usa el widget del pez). */
+    static String get(String u) throws Exception {
         HttpURLConnection con = (HttpURLConnection) new URL(u).openConnection();
         con.setConnectTimeout(8000);
         con.setReadTimeout(8000);

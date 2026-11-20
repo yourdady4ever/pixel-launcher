@@ -264,11 +264,16 @@ final class Studio {
             Prefs.setHomeLocked(a, v);
             h.applyHome();
         }));
+        col.addView(Ctl.section(a, "Cajón de apps"));
+        int n = Prefs.hidden(a).size();
+        col.addView(Ctl.action(a, Icons.EYE, "Apps ocultas", n == 0 ? "Ninguna" : String.valueOf(n), v -> h.showHiddenApps()));
+        TextView hiddenTip = Ui.text(a, "Las apps ocultas no salen en la lista del cajón, pero sí al buscarlas. Desde aquí las vuelves a mostrar.", 12, Ui.MUTED, Ui.REGULAR);
+        hiddenTip.setLineSpacing(0, 1.2f);
+        hiddenTip.setPadding(Ui.dp(a, 4), Ui.dp(a, 10), 0, Ui.dp(a, 4));
+        col.addView(hiddenTip);
         col.addView(Ctl.section(a, "Copias de seguridad"));
         col.addView(Ctl.action(a, Icons.HISTORY, "Restaurar una copia", String.valueOf(Safety.tags(a).size()), v -> h.restoreHome()));
         col.addView(Ctl.action(a, Icons.TRASH, "Empezar de cero", null, v -> h.resetHome()));
-        int n = Prefs.hidden(a).size();
-        col.addView(Ctl.action(a, Icons.SHAPES, "Apps ocultas", n == 0 ? "Ninguna" : String.valueOf(n), v -> h.showHiddenApps()));
     }
 
     // ---------- Íconos ----------

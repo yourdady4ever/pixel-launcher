@@ -68,8 +68,20 @@ final class IconEngine {
 
     /** ¿A este ícono hay que recortarlo con la forma elegida? */
     static boolean clipped(Context c, String pkg) {
-        if (Prefs.iconShape(c) == 0) return customFile(c, pkg).exists();
-        return Pack.get(c, pkg) == null || customFile(c, pkg).exists();
+        if (Prefs.iconShape(c) == 0) return hasCustom(c, pkg);
+        return Pack.get(c, pkg) == null || hasCustom(c, pkg);
+    }
+
+    /** Qué apps tienen ícono propio: se lee la carpeta una vez en lugar de ir al disco por cada ícono. */
+    private static java.util.Set<String> customs;
+
+    private static synchronized boolean hasCustom(Context c, String pkg) {
+        if (customs == null) {
+            customs = new java.util.HashSet<>();
+            String[] names = new File(c.getFilesDir(), "icons").list();
+            if (names != null) for (String n : names) if (n.endsWith(".png")) customs.add(n.substring(0, n.length() - 4));
+        }
+        return customs.contains(pkg);
     }
 
     /** Pone el ícono en la vista con su forma. */
@@ -188,10 +200,12 @@ final class IconEngine {
     static synchronized void clearCustom(Context c, String pkg) {
         customFile(c, pkg).delete();
         customCache.remove(pkg);
+        customs = null;
     }
 
     private static synchronized void forget(String pkg) {
         customCache.remove(pkg);
+        customs = null;
     }
 
     /** Recorta la foto al centro en cuadrado de 192 px y la guarda como ícono de esa app. */

@@ -110,7 +110,7 @@ final class HomeMenus {
                 if (done) home.saveModel();
             }));
         }
-        if (v instanceof Gadgets.Gadget && !it.type.equals("buscar")) {
+        if (v instanceof Gadgets.Gadget && !it.type.equals("buscar") && !it.type.equals("pez")) {
             Gadgets.Gadget g = (Gadgets.Gadget) v;
             col.addView(Ctl.toggle(a, "Fondo de vidrio", "Sin vidrio, el widget queda directo sobre tu fondo.", g.hasGlass(), on -> {
                 it.put("bg", on);
@@ -361,7 +361,7 @@ final class HomeMenus {
 
     private static final String[][] GROUPS = {
             {"Hora y fechas", "reloj", "analogico", "hora_mundial", "calendario", "agenda", "cuenta"},
-            {"Para ti", "saludo", "pendientes", "estudio", "jarvis", "nota"},
+            {"Para ti", "pez", "saludo", "pendientes", "estudio", "jarvis", "nota"},
             {"Música y clima", "musica", "ondas", "clima"},
             {"Tu teléfono", "sistema", "bateria", "interruptores", "buscar", "atajo"},
             {"Decorativos (giran y se enciman)", "texto", "forma", "foto"}};

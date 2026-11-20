@@ -271,6 +271,15 @@ final class Icons {
         p.lineTo(7f, 17f);
     };
 
+    /** Ojo: apps ocultas. */
+    static final Shape EYE = p -> {
+        p.moveTo(2.5f, 12f);
+        p.cubicTo(5.5f, 6.5f, 18.5f, 6.5f, 21.5f, 12f);
+        p.cubicTo(18.5f, 17.5f, 5.5f, 17.5f, 2.5f, 12f);
+        p.close();
+        p.addCircle(12f, 12f, 3f, Path.Direction.CW);
+    };
+
     static final Shape BOX = p -> {
         p.moveTo(12f, 3.5f);
         p.lineTo(19.5f, 7.5f);

@@ -100,8 +100,9 @@ public class MainActivity extends Activity implements Studio.Host, Drawer.Host, 
         @Override
         public void onReceive(Context c, Intent i) {
             Drawer.invalidateApps();
-            Drawer.trim();
             String pkg = i.getData() != null ? i.getData().getSchemeSpecificPart() : null;
+            // Solo se rehace el ícono de la app que cambió, no los de todas
+            if (pkg != null) Drawer.forget(pkg);
             boolean replacing = i.getBooleanExtra(Intent.EXTRA_REPLACING, false);
             if (pkg != null && pkg.equals(Prefs.iconPack(MainActivity.this))) IconEngine.Pack.reset();
             if (Intent.ACTION_PACKAGE_REMOVED.equals(i.getAction()) && !replacing && pkg != null) removeApp(pkg);
@@ -518,10 +519,10 @@ public class MainActivity extends Activity implements Studio.Host, Drawer.Host, 
     @Override
     public void onTrimMemory(int level) {
         super.onTrimMemory(level);
-        if (level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) {
-            Wallpaper.trim();
-            Drawer.trim();
-        }
+        // UI_HIDDEN llega cada vez que abres una app: solo se sueltan las miniaturas. Los íconos del
+        // cajón se quedan (antes se rehacían todos en el hilo principal al volver y se trababa)
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) Wallpaper.trim();
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND) Drawer.trim();
     }
 
     @Override
@@ -1230,18 +1231,22 @@ public class MainActivity extends Activity implements Studio.Host, Drawer.Host, 
                     Sheet.item("Desinstalar", Icons.TRASH, () -> uninstall(app.pkg, app.user)).danger());
             return;
         }
+        // Una oculta sale al buscarla: desde aquí se puede volver a mostrar
+        boolean isHidden = Prefs.hidden(this).contains(app.pkg);
         Sheet.show(this, backdrop, app.label,
                 Sheet.item("Agregar a inicio", Icons.PLUS, () -> {
                     closeDrawer();
                     handler.postDelayed(() -> addAppToHome(app.pkg), 300);
                 }),
                 Sheet.item("Poner en el dock", Icons.HOME, () -> chooseSlot(app.pkg, app.label)),
-                Sheet.item("Ocultar del cajón", Icons.CLOSE, () -> {
+                Sheet.item(isHidden ? "Mostrar en el cajón" : "Ocultar del cajón", isHidden ? Icons.EYE : Icons.CLOSE, () -> {
                     Set<String> h = Prefs.hidden(this);
-                    h.add(app.pkg);
+                    if (isHidden) h.remove(app.pkg);
+                    else h.add(app.pkg);
                     Prefs.setHidden(this, h);
                     drawer.load(false);
-                    Sheet.pill(this, backdrop, app.label + " quedó oculta");
+                    Sheet.pill(this, backdrop, isHidden ? app.label + " volvió al cajón"
+                            : app.label + " quedó oculta. Para verla, búscala o toca «Apps ocultas» en el cajón");
                 }),
                 Sheet.item("Información de la app", Icons.INFO, () -> appInfo(this, app.pkg)),
                 Sheet.item("Desinstalar", Icons.TRASH, () -> uninstall(app.pkg)).danger());
@@ -1286,19 +1291,43 @@ public class MainActivity extends Activity implements Studio.Host, Drawer.Host, 
             Sheet.pill(this, backdrop, "No tienes apps ocultas");
             return;
         }
-        List<Sheet.Item> items = new ArrayList<>();
+        PackageManager pm = getPackageManager();
+        List<String[]> rows = new ArrayList<>();
         for (String pkg : hidden) {
-            final String n = IconEngine.label(this, pkg);
-            Sheet.Item it = Sheet.item(n, Icons.SHAPES, () -> {
+            // Si ya la desinstalaste solo queda su paquete en la lista: se puede quitar
+            boolean installed = pm.getLaunchIntentForPackage(pkg) != null;
+            rows.add(new String[]{pkg, installed ? IconEngine.label(this, pkg) : pkg, installed ? "1" : ""});
+        }
+        java.text.Collator col = java.text.Collator.getInstance(ES);
+        rows.sort((x, y) -> col.compare(x[1], y[1]));
+        List<Sheet.Item> items = new ArrayList<>();
+        for (String[] r : rows) {
+            final String pkg = r[0], n = r[1];
+            final boolean installed = !r[2].isEmpty();
+            Sheet.Item it = Sheet.item(n, Icons.EYE, () -> {
                 Set<String> h = Prefs.hidden(this);
                 h.remove(pkg);
                 Prefs.setHidden(this, h);
                 drawer.load(false);
-                Sheet.pill(this, backdrop, n + " volvió al cajón");
+                Sheet.pill(this, backdrop, installed ? n + " volvió al cajón" : "Ya no está en la lista");
             });
-            it.value = () -> "Mostrar";
+            if (installed) {
+                try {
+                    it.drawable(pm.getApplicationIcon(pkg));
+                } catch (PackageManager.NameNotFoundException ignored) {
+                    // se queda el ícono de línea
+                }
+            }
+            it.value = () -> installed ? "Mostrar" : "No instalada · Quitar";
             it.keepOpen = false;
             items.add(it);
+        }
+        if (rows.size() > 1) {
+            items.add(Sheet.item("Mostrar todas", Icons.EYE, () -> {
+                Prefs.setHidden(this, new HashSet<>());
+                drawer.load(false);
+                Sheet.pill(this, backdrop, "Todas volvieron al cajón");
+            }));
         }
         Sheet.show(this, backdrop, "Apps ocultas", items);
     }

@@ -47,6 +47,9 @@ class Drawer extends FrameLayout {
     interface Host {
         void closeDrawer();
         void appActions(App app, View from);
+
+        /** La lista para volver a mostrar las apps ocultas (en el selector del dock no hace falta). */
+        default void showHiddenApps() {}
     }
 
     static final class App {
@@ -88,23 +91,40 @@ class Drawer extends FrameLayout {
     private static int iconStyleCached = -1;
     private static final Handler main = new Handler(Looper.getMainLooper());
 
+    private static boolean loadingApps = false, warming = false;
+    private static final List<Loaded> waiting = new ArrayList<>();
+    /** Cajones abiertos, para redibujarlos cuando lleguen íconos preparados en segundo plano. */
+    private static final List<java.lang.ref.WeakReference<Drawer>> drawers = new ArrayList<>();
+
     static void invalidateApps() {
         cache = null;
         workCache = new ArrayList<>();
         privateCache = new ArrayList<>();
-        iconCache.clear();
     }
 
     static void trim() {
         iconCache.clear();
     }
 
+    /** Olvida el ícono de una sola app (se instaló, actualizó o cambió). */
+    static void forget(String pkg) {
+        iconCache.remove(pkg);
+    }
+
     static void apps(Context c, Loaded l) {
         if (cache != null) {
             l.loaded(cache);
+            // Si se soltaron íconos por memoria, se rehacen fuera del hilo principal
+            warmIcons(c);
             return;
         }
+        // Si ya se está cargando, se espera a esa misma carga en vez de lanzar otra
+        waiting.add(l);
+        if (loadingApps) return;
+        loadingApps = true;
         Context app = c.getApplicationContext();
+        java.util.Set<String> have = Prefs.iconStyle(app) == iconStyleCached
+                ? new java.util.HashSet<>(iconCache.keySet()) : new java.util.HashSet<>();
         new Thread(() -> {
             PackageManager pm = app.getPackageManager();
             List<ResolveInfo> list = pm.queryIntentActivities(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0);
@@ -121,6 +141,7 @@ class Drawer extends FrameLayout {
             int style = Prefs.iconStyle(app);
             Map<String, Drawable> pre = new HashMap<>();
             for (App x : out) {
+                if (have.contains(x.pkg)) continue;
                 Drawable d = IconEngine.icon(app, x.pkg);
                 if (d != null) pre.put(x.pkg, d);
             }
@@ -136,7 +157,45 @@ class Drawer extends FrameLayout {
                 cache = out;
                 workCache = work;
                 privateCache = privList;
-                l.loaded(out);
+                loadingApps = false;
+                List<Loaded> ls = new ArrayList<>(waiting);
+                waiting.clear();
+                for (Loaded w : ls) w.loaded(out);
+            });
+        }).start();
+    }
+
+    /** Prepara en segundo plano los íconos que falten en la caché y luego redibuja los cajones. */
+    private static void warmIcons(Context c) {
+        if (warming || cache == null) return;
+        int style = Prefs.iconStyle(c);
+        if (style != iconStyleCached) {
+            iconCache.clear();
+            iconStyleCached = style;
+        }
+        List<String> missing = new ArrayList<>();
+        for (App x : cache) if (!iconCache.containsKey(x.pkg)) missing.add(x.pkg);
+        if (missing.isEmpty()) return;
+        warming = true;
+        Context app = c.getApplicationContext();
+        new Thread(() -> {
+            Map<String, Drawable> pre = new HashMap<>();
+            for (String pkg : missing) {
+                Drawable d = IconEngine.icon(app, pkg);
+                if (d != null) pre.put(pkg, d);
+            }
+            main.post(() -> {
+                warming = false;
+                if (iconStyleCached != style) return;
+                for (Map.Entry<String, Drawable> en : pre.entrySet()) {
+                    if (!iconCache.containsKey(en.getKey())) iconCache.put(en.getKey(), en.getValue());
+                }
+                java.util.Iterator<java.lang.ref.WeakReference<Drawer>> it = drawers.iterator();
+                while (it.hasNext()) {
+                    Drawer d = it.next().get();
+                    if (d == null) it.remove();
+                    else d.adapter.notifyDataSetChanged();
+                }
             });
         }).start();
     }
@@ -167,6 +226,11 @@ class Drawer extends FrameLayout {
     private final Host host;
     private final boolean pick;
     private final List<App> all = new ArrayList<>();
+    /** Las que ocultaste: no salen en la lista, pero sí al buscarlas (un poco apagadas). */
+    private final List<App> hiddenApps = new ArrayList<>();
+    private final Set<String> hiddenSet = new java.util.HashSet<>();
+    private final View hiddenRow;
+    private final TextView hiddenText;
     private final List<App> work = new ArrayList<>();
     private final List<App> shown = new ArrayList<>();
     private final Segmented tabs;
@@ -301,6 +365,30 @@ class Drawer extends FrameLayout {
         suggestRow.setPadding(0, Ui.dp(a, 16), 0, Ui.dp(a, 4));
         column.addView(suggestRow, new LinearLayout.LayoutParams(-1, -2));
 
+        // Aviso discreto de cuántas apps ocultaste; al tocarlo salen para volver a mostrarlas
+        LinearLayout hr = new LinearLayout(a);
+        hr.setGravity(Gravity.CENTER_VERTICAL);
+        hr.setPadding(Ui.dp(a, 6), Ui.dp(a, 10), Ui.dp(a, 6), Ui.dp(a, 4));
+        ImageView hri = new ImageView(a);
+        Icons.Line hrd = Icons.of(Icons.EYE);
+        hrd.setColor(Ui.MUTED);
+        hri.setImageDrawable(hrd);
+        hr.addView(hri, new LinearLayout.LayoutParams(Ui.dp(a, 18), Ui.dp(a, 18)));
+        hiddenText = Ui.text(a, "", 13, Ui.MUTED, Ui.MEDIUM);
+        LinearLayout.LayoutParams htl = new LinearLayout.LayoutParams(0, -2, 1f);
+        htl.leftMargin = Ui.dp(a, 8);
+        hr.addView(hiddenText, htl);
+        hr.addView(Ui.text(a, "Ver", 13, Theme.accent, Ui.SEMIBOLD));
+        Ui.pressable(hr, 0.97f);
+        hr.setOnClickListener(v -> {
+            Sound.play(v, Sound.TAP);
+            Sheet.hideKeyboard(act, search);
+            host.showHiddenApps();
+        });
+        hr.setVisibility(GONE);
+        hiddenRow = hr;
+        column.addView(hr, new LinearLayout.LayoutParams(-1, -2));
+
         // Espacio privado: bloqueado solo se ve el candado; desbloqueado, sus apps en una fila
         LinearLayout pb = new LinearLayout(a);
         pb.setOrientation(LinearLayout.VERTICAL);
@@ -374,6 +462,7 @@ class Drawer extends FrameLayout {
             else webSearch();
             return true;
         });
+        drawers.add(new java.lang.ref.WeakReference<>(this));
         if (!pickMode) setOnApplyWindowInsetsListener((v, in) -> {
             column.setPadding(side, in.getSystemWindowInsetTop() + Ui.dp(a, 12), side, 0);
             grid.setPadding(0, Ui.dp(a, 18), 0, in.getSystemWindowInsetBottom() + Ui.dp(a, 24));
@@ -389,8 +478,14 @@ class Drawer extends FrameLayout {
     void load(boolean animate) {
         apps(act, list -> {
             all.clear();
+            hiddenApps.clear();
             Set<String> hidden = Prefs.hidden(act);
-            for (App x : list) if (showHidden || !hidden.contains(x.pkg)) all.add(x);
+            hiddenSet.clear();
+            hiddenSet.addAll(hidden);
+            for (App x : list) {
+                if (showHidden || !hidden.contains(x.pkg)) all.add(x);
+                else hiddenApps.add(x);
+            }
             // Al elegir una app para el dock no salen las de trabajo: el dock guarda solo el paquete
             work.clear();
             boolean hasWork = !pick && !WorkApps.profiles(act).isEmpty();
@@ -458,7 +553,12 @@ class Drawer extends FrameLayout {
             for (App x : all) if (x.key.contains(q)) shown.add(x);
             for (App x : work) if (x.key.contains(q)) shown.add(x);
             for (App x : priv) if (x.key.contains(q)) shown.add(x);
+            // Las ocultas también salen al buscarlas, para que nunca se pierdan
+            for (App x : hiddenApps) if (x.key.contains(q)) shown.add(x);
         }
+        int nh = hiddenApps.size();
+        hiddenRow.setVisibility(q.isEmpty() && !pick && !workTab && nh > 0 ? VISIBLE : GONE);
+        hiddenText.setText(nh == 1 ? "1 app oculta" : nh + " apps ocultas");
         // Espacio privado: bloqueado no se ve; para abrirlo se busca "privado", como en Pixel
         boolean askPrivate = q.contains("privad") || q.contains("private");
         boolean showPrivate = hasPrivate && !workTab && (privLocked ? askPrivate : q.isEmpty() || askPrivate);
@@ -723,11 +823,19 @@ class Drawer extends FrameLayout {
                 icon.setClipToOutline(false);
                 icon.setOutlineProvider(android.view.ViewOutlineProvider.BACKGROUND);
             } else {
-                icon.setImageDrawable(icon(act, x.pkg));
+                // Si el ícono no está listo no se genera aquí (trabaría el scroll): se pide en segundo plano
+                Drawable d = iconCache.get(x.pkg);
+                if (d == null && cache != null && Prefs.iconStyle(act) == iconStyleCached) {
+                    warmIcons(act);
+                    icon.setImageDrawable(null);
+                } else {
+                    icon.setImageDrawable(d != null ? d : icon(act, x.pkg));
+                }
                 IconEngine.clip(icon, x.pkg);
             }
-            // En pausa se ven apagadas
-            cell.setAlpha(x.work() && !x.priv && workPaused ? 0.45f : 1f);
+            // En pausa y las ocultas (al buscarlas) se ven apagadas
+            boolean dim = x.work() ? !x.priv && workPaused : hiddenSet.contains(x.pkg) && !showHidden;
+            cell.setAlpha(dim ? 0.45f : 1f);
             return cell;
         }
     }
