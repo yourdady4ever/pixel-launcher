@@ -1969,7 +1969,7 @@ final class Gadgets {
         private static final float[] MOOD_SP = {.4f, .85f, .6f, .7f, 1.3f, .75f, 1.1f, 1.1f, 1f, 1.5f, .5f, 1.6f, 1.2f};
         private static final String[] MOOD_EMO = {"z", "!", "…", "…", "♪", "~", HEART, "", "", "#", "@", "!", "★"};
         private static final String[] MOOD_OFF = new String[MOOD_LBL.length];
-        private static final int ANGRY = 9, DIZZY = 10, SURPRISED = 11;
+        private static final int LOVE = 6, ANGRY = 9, DIZZY = 10, SURPRISED = 11;
         private static final Pez BLANK = new Pez(new JSONObject());
 
         static {
@@ -2123,6 +2123,9 @@ final class Gadgets {
                     for (long x : tapTimes) if (x > 0 && t - x < 4000) taps++;
                     if (taps >= 5 && setMood(DIZZY, 5)) return;
                     if (taps == 3 && setMood(ANGRY, 6)) return;
+                    // Enamorado ya no es permanente: solo un ratito después de unos mimos
+                    Pez pz = pez;
+                    if (taps < 3 && pz != null && pz.happy(System.currentTimeMillis()) > 80 && Math.random() < .25 && setMood(LOVE, 22)) return;
                     speak(PezTalk.clickLine(act));
                 } else {
                     open();
@@ -2170,7 +2173,6 @@ final class Gadgets {
             if (food < 20) return 1;
             if (happy < 25) return 2;
             if (p.fat >= 3) return 5;
-            if (happy > 90 && food > 60) return 6;
             if (happy > 75) return 7;
             if (happy < 50 && up - lastTouch > 240_000) return 3;
             return 8;
@@ -2303,9 +2305,11 @@ final class Gadgets {
                         // Si lo cuidaron desde la compu hace un momento, lo cuenta
                         String ev = fresh.ev;
                         if ("pc".equals(fresh.by) && fresh.t != lastPcT && System.currentTimeMillis() - fresh.t < 20_000
-                                && ("feed".equals(ev) || "play".equals(ev) || "look".equals(ev) || "talk".equals(ev))) {
+                                && ("feed".equals(ev) || "play".equals(ev) || "look".equals(ev) || "talk".equals(ev) || "clean".equals(ev))) {
                             lastPcT = fresh.t;
-                            setMood(SURPRISED, 4);
+                            boolean mimo = ("feed".equals(ev) || "play".equals(ev) || "clean".equals(ev))
+                                    && fresh.happy(System.currentTimeMillis()) > 85 && Math.random() < .4;
+                            setMood(mimo ? LOVE : SURPRISED, mimo ? 22 : 4);
                             speak(PezTalk.fromPc(act, ev));
                         }
                         // Se guarda solo si cambió, para no escribir en disco cada 15 s
