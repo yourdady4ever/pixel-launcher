@@ -272,6 +272,7 @@ final class Studio {
         // Respaldo en un archivo tuyo (Drive incluido), actualizaciones y el registro para reportar fallas
         col.addView(Ctl.section(a, "Jostin OS"));
         col.addView(Ctl.action(a, Icons.HISTORY, "Buscar actualización", Updater.status(a), v -> Updater.ask(a, h.backdrop())));
+        col.addView(Ctl.action(a, Icons.LOCK, "Conectar mi pez", PezKey.get(a) == null ? "Sin conectar" : "Conectado", v -> PezKey.ask(a, h.backdrop())));
         col.addView(Ctl.action(a, Icons.HISTORY, "Tiempo en pantalla", "Hoy y límites", v -> {
             if (a instanceof MainActivity) AppUsage.panel((MainActivity) a);
         }));

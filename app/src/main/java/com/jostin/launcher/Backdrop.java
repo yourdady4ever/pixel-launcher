@@ -309,7 +309,7 @@ class Backdrop extends View implements SensorEventListener {
     private void schedule() {
         if (ticking) return;
         ticking = true;
-        postOnAnimationDelayed(tick, smooth && !eco ? 14 : 31);
+        postOnAnimationDelayed(tick, MainActivity.idle() ? 55 : smooth && !eco ? 14 : 31);
     }
 
     private boolean needsFrames() {

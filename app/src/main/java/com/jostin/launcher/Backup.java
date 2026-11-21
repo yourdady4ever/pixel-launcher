@@ -28,7 +28,7 @@ import java.util.Set;
 final class Backup {
     static final int REQ_EXPORT = 401, REQ_IMPORT = 402;
     /** Lo que no tiene sentido llevarse: datos del momento o del aparato. */
-    private static final String[] SKIP = {"pez_last", "update_checked", "update_tag", "w_cache", "w_time", "use_counts", "apps_share"};
+    private static final String[] SKIP = {"pez_last", "update_checked", "update_tag", "w_cache", "w_time", "use_counts", "apps_share", "pez_key"};
 
     private Backup() {}
 

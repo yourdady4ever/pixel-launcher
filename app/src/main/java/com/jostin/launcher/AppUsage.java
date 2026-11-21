@@ -31,11 +31,10 @@ import java.util.concurrent.Executors;
 
 /**
  * Para que el pez sepa cuánto llevas en TikTok y si ya hiciste tu Duolingo. Con el permiso de
- * «Acceso al uso», cada ~5 min y solo con la pantalla prendida, sube a /apps/cel tres datos:
+ * «Acceso al uso», cada ~5 min y solo con la pantalla prendida, sube a /u/<tu clave>/apps/cel tres datos:
  * minutos de TikTok hoy, si abriste Duolingo hoy y la hora. Nada de historial ni otras apps.
  */
 final class AppUsage {
-    static final String URL_CEL = "https://pez-estudio-default-rtdb.firebaseio.com/apps/cel.json";
     private static final String[] TIKTOK = {"com.zhiliaoapp.musically", "com.ss.android.ugc.trill"};
     private static final String DUO = "com.duolingo";
     private static final long EVERY = 5 * 60_000L;
@@ -152,7 +151,9 @@ final class AppUsage {
                 o.put("tiktok", tk);
                 o.put("duo", duo);
                 o.put("t", now);
-                put(URL_CEL, o.toString());
+                String dest = PezKey.appsCel(c);
+                if (dest == null) return;
+                put(dest, o.toString());
                 MAIN.post(() -> PezTalk.appsCel = o);
             } catch (Throwable ignored) {
                 // sin internet o sin permiso: se intenta en la siguiente vuelta

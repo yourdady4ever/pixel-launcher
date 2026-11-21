@@ -1948,8 +1948,14 @@ final class Gadgets {
      * celular. Lee /pez.json cada ~15 s solo mientras se ve; sin internet se queda el último.
      */
     static final class PezG extends Gadget {
-        static final String DATA = "https://pez-estudio-default-rtdb.firebaseio.com/pez.json";
-        static final String APPS = "https://pez-estudio-default-rtdb.firebaseio.com/apps.json";
+        /** Se cambió de pez (o se conectó): se olvida el anterior y se lee el nuevo ya. */
+        static void reset() {
+            pez = null;
+            raw = null;
+            fetchedAt = 0;
+            appsAt = 0;
+            offline = false;
+        }
         private static final ExecutorService NET = Executors.newSingleThreadExecutor();
         private static final int GREEN = 0xFF3DFF7A, RED = 0xFFFF3B3B;
         private static final long EVERY = 30_000;
@@ -2075,7 +2081,7 @@ final class Gadgets {
             Bitmap b = Bitmap.createBitmap(1, Math.max(3, dp(3)), Bitmap.Config.ARGB_8888);
             b.setPixel(0, 0, Ui.alpha(GREEN, 0x12));
             scan.setShader(new BitmapShader(b, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT));
-            if (pez == null) pez = saved(a);
+            if (pez == null && PezKey.get(a) != null) pez = saved(a);
             PezTalk.preload(a);
             PezAviso.mark(a);
             setContentDescription("Pez de estudio");
@@ -2207,6 +2213,10 @@ final class Gadgets {
         @Override
         void options(List<Sheet.Item> out) {
             out.add(Sheet.item("Abrir el pez", FISH, this::open));
+            Sheet.Item key = Sheet.item("Conectar mi pez", Icons.LOCK, () -> PezKey.ask(act, backdrop));
+            key.value = () -> PezKey.get(act) == null ? "Sin conectar" : "Conectado";
+            key.keepOpen = false;
+            out.add(key);
             Sheet.Item apps = Sheet.item("El pez y tus apps", Icons.EYE, () -> AppUsage.explain(act, backdrop));
             apps.value = () -> AppUsage.enabled(act) ? "Sí" : "No";
             out.add(apps);
@@ -2252,11 +2262,17 @@ final class Gadgets {
             loading = true;
             fetchedAt = System.currentTimeMillis();
             Context app = act.getApplicationContext();
+            // Todo vive en /u/<tu clave>/; sin clave el pez funciona sin red
+            String urlPez = PezKey.pez(app), urlApps = PezKey.apps(app);
+            if (urlPez == null) {
+                loading = false;
+                return;
+            }
             NET.execute(() -> {
                 String got = null;
                 Pez p = null;
                 try {
-                    got = Weather.get(DATA);
+                    got = Weather.get(urlPez);
                     p = new Pez(new JSONObject(got));
                 } catch (Throwable ignored) {
                     // sin internet, base vacía o respuesta rara
@@ -2266,7 +2282,7 @@ final class Gadgets {
                 if (System.currentTimeMillis() - appsAt > 60_000) {
                     appsAt = System.currentTimeMillis();
                     try {
-                        a = new JSONObject(Weather.get(APPS));
+                        a = new JSONObject(Weather.get(urlApps));
                     } catch (Throwable ignored) {
                         // sin datos de apps
                     }
@@ -2321,7 +2337,7 @@ final class Gadgets {
             if (started && seen) {
                 removeCallbacks(frame);
                 if (still) postDelayed(frame, 1000);
-                else postOnAnimationDelayed(frame, slow || PezTalk.battery() >= 0 && PezTalk.battery() < 20 ? 30 : 22);
+                else postOnAnimationDelayed(frame, MainActivity.idle() ? 64 : slow || PezTalk.battery() >= 0 && PezTalk.battery() < 20 ? 30 : 22);
             } else {
                 removeCallbacks(frame);
             }
@@ -2426,7 +2442,7 @@ final class Gadgets {
                 lvlFor = lv;
                 lvlText = lv > 0 ? "C:\\ESTUDIO\\PEZ.EXE  NV " + lv : "C:\\ESTUDIO\\PEZ.EXE";
             }
-            String h = lvlText;
+            String h = PezKey.get(act) == null ? "Conecta tu pez desde la página 🔒" : lvlText;
             int fit = ui.breakText(h, true, Math.max(0, x1 - x0 - moodW), null);
             c.drawText(h, 0, fit, x0, y0 + hs * 0.8f, ui);
             ui.clearShadowLayer();

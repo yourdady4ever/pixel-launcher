@@ -39,7 +39,9 @@ final class PezAviso {
         if (now - Prefs.sp(c).getLong("pez_notif_at", 0) < 3 * 3600_000L) return;
         Gadgets.Pez p;
         try {
-            p = new Gadgets.Pez(new JSONObject(Weather.get(Gadgets.PezG.DATA)));
+            String u = PezKey.pez(c);
+            if (u == null) return;
+            p = new Gadgets.Pez(new JSONObject(Weather.get(u)));
         } catch (Throwable e) {
             return;
         }

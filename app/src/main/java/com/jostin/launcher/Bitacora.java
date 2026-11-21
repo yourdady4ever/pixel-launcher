@@ -38,6 +38,7 @@ final class Bitacora {
         if (file != null) return;
         File dir = c.getApplicationContext().getFilesDir();
         file = new File(dir, "registro.txt");
+        PezKey.get(c);
         old = new File(dir, "registro.1.txt");
         Thread.UncaughtExceptionHandler prev = Thread.getDefaultUncaughtExceptionHandler();
         Thread.setDefaultUncaughtExceptionHandler((t, e) -> {
@@ -63,7 +64,7 @@ final class Bitacora {
                 file.renameTo(old);
             }
             try (FileWriter w = new FileWriter(file, true)) {
-                w.write(new SimpleDateFormat("dd/MM HH:mm:ss", Locale.US).format(new Date()) + "  " + msg + "\n");
+                w.write(new SimpleDateFormat("dd/MM HH:mm:ss", Locale.US).format(new Date()) + "  " + PezKey.hide(msg) + "\n");
             }
         } catch (Exception ignored) {
             // si no se puede escribir, no pasa nada

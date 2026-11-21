@@ -4,3 +4,9 @@ app/build/
 local.properties
 *.iml
 .idea/
+
+# Llaves de firma: nunca en el repo
+*.keystore
+*.jks
+*.p12
+secretos-github.txt

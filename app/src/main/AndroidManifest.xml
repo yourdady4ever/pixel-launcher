@@ -166,6 +166,22 @@
             </intent-filter>
         </service>
 
+        <!-- jostinos://pez?k=CLAVE desde la página del pez (siempre pregunta antes de guardar) -->
+        <activity
+            android:name=".PezLinkActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="jostinos" android:host="pez" />
+            </intent-filter>
+        </activity>
+
         <!-- Respuesta del instalador al actualizar Jostin OS -->
         <receiver android:name=".Updater$Done" android:exported="false" />
 

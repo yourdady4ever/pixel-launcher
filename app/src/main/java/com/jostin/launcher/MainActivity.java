@@ -576,6 +576,7 @@ public class MainActivity extends Activity implements Studio.Host, Drawer.Host, 
 
     @Override
     public boolean dispatchTouchEvent(MotionEvent e) {
+        lastTouch = android.os.SystemClock.uptimeMillis();
         // El fondo reacciona al dedo (la constelación se aparta) solo con inicio a la vista
         if (!drawerOpen && overlay.getVisibility() != View.VISIBLE && !home.editing) {
             int a = e.getActionMasked();
@@ -903,6 +904,13 @@ public class MainActivity extends Activity implements Studio.Host, Drawer.Host, 
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 430);
         }
+    }
+
+    /** Último toque en inicio; tras 10 s quieto, el fondo y el pez bajan el ritmo para ahorrar. */
+    private static volatile long lastTouch = android.os.SystemClock.uptimeMillis();
+
+    static boolean idle() {
+        return android.os.SystemClock.uptimeMillis() - lastTouch > 10_000;
     }
 
     void twoFingerSwipe() {

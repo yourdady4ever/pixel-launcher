@@ -23,8 +23,23 @@ jobs:
         with:
           gradle-version: '8.9'
 
+      - name: Preparar la llave de firma
+        env:
+          JOSTIN_KEYSTORE_B64: ${{ secrets.JOSTIN_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$JOSTIN_KEYSTORE_B64" ]; then echo "::error::Faltan los secretos de firma (JOSTIN_KEYSTORE_B64)"; exit 1; fi
+          echo "$JOSTIN_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.p12"
+
       - name: Compilar
-        run: gradle assembleRelease --no-daemon --stacktrace
+        env:
+          JOSTIN_STORE_PASSWORD: ${{ secrets.JOSTIN_STORE_PASSWORD }}
+          JOSTIN_KEY_ALIAS: ${{ secrets.JOSTIN_KEY_ALIAS }}
+          JOSTIN_KEY_PASSWORD: ${{ secrets.JOSTIN_KEY_PASSWORD }}
+        run: JOSTIN_KEYSTORE_FILE="$RUNNER_TEMP/release.p12" gradle assembleRelease --no-daemon --stacktrace
+
+      - name: Borrar la llave del equipo de GitHub
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.p12"
 
       - name: Renombrar APK
         run: cp app/build/outputs/apk/release/app-release.apk JostinOS.apk

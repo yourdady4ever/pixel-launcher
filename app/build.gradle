@@ -14,23 +14,26 @@ android {
         versionName "1.0." + (System.getenv('GITHUB_RUN_NUMBER') ?: '1')
     }
 
+    // La llave de firma vive en los secretos de GitHub (nunca en el repo, que es público).
+    // build.yml la decodifica en app/release.p12 y pasa las contraseñas por variables de entorno.
+    def ks = System.getenv('JOSTIN_KEYSTORE_FILE')
     signingConfigs {
-        fixed {
-            // Llave fija para que cada versión nueva se instale encima de la anterior
-            storeFile file('launcher.keystore')
-            storePassword 'android'
-            keyAlias 'jostin'
-            keyPassword 'android'
+        release {
+            if (ks) {
+                storeFile file(ks)
+                storeType 'PKCS12'
+                storePassword System.getenv('JOSTIN_STORE_PASSWORD')
+                keyAlias System.getenv('JOSTIN_KEY_ALIAS')
+                keyPassword System.getenv('JOSTIN_KEY_PASSWORD')
+            }
         }
     }
 
     buildTypes {
-        debug {
-            signingConfig signingConfigs.fixed
-        }
         release {
             minifyEnabled false
-            signingConfig signingConfigs.fixed
+            // Sin llave no se firma: así nunca sale un APK con una llave conocida
+            if (ks) signingConfig signingConfigs.release
         }
     }
 
