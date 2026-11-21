@@ -54,7 +54,12 @@ public class PezActivity extends Activity {
         });
         setContentView(web);
         if (saved != null) web.restoreState(saved);
-        else web.loadUrl(URL);
+        else {
+            // La página guarda su clave en su propio almacenamiento; esta ventana no comparte el de Chrome,
+            // así que se le pasa en el fragmento (#k=…, no viaja al servidor y la página lo limpia sola)
+            String k = PezKey.get(this);
+            web.loadUrl(k == null ? URL : URL + "/#k=" + k);
+        }
     }
 
     @Override

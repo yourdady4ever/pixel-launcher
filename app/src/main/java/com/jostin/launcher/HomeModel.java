@@ -249,6 +249,7 @@ final class HomeModel {
     void normalize() {
         List<Item> placed = new ArrayList<>();
         for (Item it : new ArrayList<>(items)) {
+            float ox = it.x, oy = it.y, ow = it.w, oh = it.h;
             it.w = Math.max(0.5f, Math.min(it.w, cols));
             it.h = Math.max(0.5f, Math.min(it.h, rows));
             it.x = Math.max(0, Math.min(it.x, cols - it.w));
@@ -261,13 +262,11 @@ final class HomeModel {
                 it.h = Math.max(1, Math.round(it.h));
                 if (it.x + it.w > cols) it.x = cols - it.w;
                 if (it.y + it.h > rows) it.y = rows - it.h;
-                if (!freeIn(placed, it)) {
-                    if (!relocate(placed, it)) {
-                        items.remove(it);
-                        continue;
-                    }
-                }
             }
+            // En cuadrícula nada se encima; en «Libre» sí se vale, pero no si lo encimó este reacomodo
+            boolean moved = ox != it.x || oy != it.y || ow != it.w || oh != it.h;
+            if ((!free || moved) && !freeIn(placed, it)) relocate(placed, it);
+            // Si de plano no hay lugar, se queda donde está (antes se borraba)
             placed.add(it);
             pages = Math.max(pages, it.page + 1);
         }
@@ -280,22 +279,35 @@ final class HomeModel {
         return true;
     }
 
+    /** Lo pasa al hueco libre más cercano (primero en su página, luego en las siguientes). */
     private boolean relocate(List<Item> placed, Item it) {
-        for (int p = it.page; p < MAX_PAGES; p++) {
-            for (int y = 0; y + it.h <= rows; y++) {
-                for (int x = 0; x + it.w <= cols; x++) {
-                    int op = it.page;
-                    float ox = it.x, oy = it.y;
-                    it.page = p;
+        int op = it.page;
+        float ox = it.x, oy = it.y, step = free ? 0.25f : 1f;
+        for (int p = op; p < MAX_PAGES; p++) {
+            float bx = -1, by = -1, best = Float.MAX_VALUE;
+            it.page = p;
+            for (float y = 0; y + it.h <= rows + EPS; y += step) {
+                for (float x = 0; x + it.w <= cols + EPS; x += step) {
                     it.x = x;
                     it.y = y;
-                    if (freeIn(placed, it)) return true;
-                    it.page = op;
-                    it.x = ox;
-                    it.y = oy;
+                    if (!freeIn(placed, it)) continue;
+                    float d = (x - ox) * (x - ox) + (y - oy) * (y - oy);
+                    if (d < best) {
+                        best = d;
+                        bx = x;
+                        by = y;
+                    }
                 }
             }
+            if (bx >= 0) {
+                it.x = bx;
+                it.y = by;
+                return true;
+            }
         }
+        it.page = op;
+        it.x = ox;
+        it.y = oy;
         return false;
     }
 

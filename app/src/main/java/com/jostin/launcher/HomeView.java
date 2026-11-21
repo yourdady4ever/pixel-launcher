@@ -57,6 +57,7 @@ class HomeView extends FrameLayout {
     boolean editing = false, started = false;
     int page = 0;
     private int top = 0, reserve = 0, barBottom = 0;
+    private int stableW, stableH;
     int cols = 4, rows = 6, side, gap, gridTop, gridH;
     float cellW = 1, cellH = 1;
     private boolean ready = false, enteredByLong = false, framed = false;
@@ -138,6 +139,9 @@ class HomeView extends FrameLayout {
     private void layoutGeometry() {
         int W = getWidth(), H = getHeight();
         if (W == 0 || H == 0 || !framed) return;
+        if (W == stableW && H < stableH * 0.85f) return;
+        stableW = W;
+        stableH = H;
         side = Ui.dp(act, 10);
         gap = Ui.dp(act, 5);
         gridTop = top + Ui.dp(act, 6);

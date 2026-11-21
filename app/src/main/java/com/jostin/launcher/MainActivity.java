@@ -72,6 +72,7 @@ public class MainActivity extends Activity implements Studio.Host, Drawer.Host, 
     private final String[] dockShown = new String[Prefs.SLOTS];
     private boolean wasStudying = false, drawerOpen = false, recovered = false;
     private int insetTop = 0, insetBottom = 0;
+    private boolean insetsReady;
     private Set<String> badges = new HashSet<>();
     private int lookAccent = 0;
     private boolean lookLight = false;
@@ -236,8 +237,16 @@ public class MainActivity extends Activity implements Studio.Host, Drawer.Host, 
         root.addView(overlay, new FrameLayout.LayoutParams(-1, -1));
 
         root.setOnApplyWindowInsetsListener((v, in) -> {
-            insetTop = in.getSystemWindowInsetTop();
-            insetBottom = in.getSystemWindowInsetBottom();
+            // Sin contar el teclado: si se contaba, inicio creía tener menos filas y empujaba los widgets
+            if (Build.VERSION.SDK_INT >= 30) {
+                android.graphics.Insets bars = in.getInsets(android.view.WindowInsets.Type.systemBars());
+                insetTop = bars.top;
+                insetBottom = bars.bottom;
+            } else {
+                insetTop = in.getStableInsetTop();
+                insetBottom = in.getStableInsetBottom();
+            }
+            insetsReady = true;
             ((FrameLayout.LayoutParams) bottomBox.getLayoutParams()).bottomMargin = insetBottom + Ui.dp(this, 14);
             bottomBox.requestLayout();
             updateHomeFrame();
@@ -252,6 +261,8 @@ public class MainActivity extends Activity implements Studio.Host, Drawer.Host, 
 
     /** Dónde empieza y termina la cuadrícula de inicio según la barra de estado y el dock. */
     private void updateHomeFrame() {
+        // Antes de saber el tamaño real de las barras no se calcula la cuadrícula (saldrían otras filas)
+        if (!insetsReady) return;
         int dockH = Prefs.showDock(this) ? Ui.dp(this, Prefs.dockIconSize(this) + 16 + 6) : 0;
         int reserve = insetBottom + Ui.dp(this, 14) + dockH;
         home.setFrame(insetTop, reserve, insetBottom + Ui.dp(this, 14));
