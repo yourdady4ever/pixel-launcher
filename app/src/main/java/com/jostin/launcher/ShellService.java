@@ -20,6 +20,77 @@ public class ShellService extends IShell.Stub {
         System.exit(0);
     }
 
+    // ---------- FabricatedOverlay (aquí sí se vale: este proceso corre como «shell») ----------
+
+    private static final String SHELL_PKG = "com.android.shell";
+
+    /** IOverlayManager del sistema (API oculta; solo se usa dentro de este proceso de Shizuku). */
+    private static Object overlayManager() throws Exception {
+        Object binder = Class.forName("android.os.ServiceManager").getMethod("getService", String.class).invoke(null, "overlay");
+        return Class.forName("android.content.om.IOverlayManager$Stub").getMethod("asInterface", android.os.IBinder.class).invoke(null, binder);
+    }
+
+    private static Object txBuilder() throws Exception {
+        return Class.forName("android.content.om.OverlayManagerTransaction$Builder").getConstructor().newInstance();
+    }
+
+    private static void commit(Object builder) throws Exception {
+        Object tx = builder.getClass().getMethod("build").invoke(builder);
+        Object om = overlayManager();
+        om.getClass().getMethod("commit", android.content.om.OverlayManagerTransaction.class).invoke(om, tx);
+    }
+
+    private static void setEnabled(Object builder, android.content.om.OverlayIdentifier id, boolean on) throws Exception {
+        try {
+            builder.getClass().getMethod("setEnabled", android.content.om.OverlayIdentifier.class, boolean.class, int.class).invoke(builder, id, on, 0);
+        } catch (NoSuchMethodException e) {
+            builder.getClass().getMethod("setEnabled", android.content.om.OverlayIdentifier.class, boolean.class).invoke(builder, id, on);
+        }
+    }
+
+    private static String why(Throwable t) {
+        while (t.getCause() != null && (t instanceof java.lang.reflect.InvocationTargetException || t.getMessage() == null)) t = t.getCause();
+        return t.getClass().getSimpleName() + ": " + t.getMessage();
+    }
+
+    @Override
+    public String fabricate(String name, String spec) {
+        try {
+            android.content.om.FabricatedOverlay fo = new android.content.om.FabricatedOverlay(name, "android");
+            // Que quede a nombre de «shell» (es quien lo registra)
+            android.content.om.FabricatedOverlay.class.getMethod("setOwningPackage", String.class).invoke(fo, SHELL_PKG);
+            int n = 0;
+            for (String kv : spec.split(";")) {
+                int k = kv.indexOf('=');
+                if (k <= 0) continue;
+                int color = (int) Long.parseLong(kv.substring(k + 1), 16);
+                fo.setResourceValue("android:color/" + kv.substring(0, k), android.util.TypedValue.TYPE_INT_COLOR_ARGB8, color, null);
+                n++;
+            }
+            Object b = txBuilder();
+            b.getClass().getMethod("registerFabricatedOverlay", android.content.om.FabricatedOverlay.class).invoke(b, fo);
+            setEnabled(b, fo.getIdentifier(), true);
+            commit(b);
+            return "ok " + n;
+        } catch (Throwable t) {
+            return why(t);
+        }
+    }
+
+    @Override
+    public String unfabricate(String name) {
+        try {
+            android.content.om.OverlayIdentifier id = (android.content.om.OverlayIdentifier) Class.forName("android.content.om.OverlayIdentifier")
+                    .getConstructor(String.class, String.class).newInstance(SHELL_PKG, name);
+            Object b = txBuilder();
+            b.getClass().getMethod("unregisterFabricatedOverlay", android.content.om.OverlayIdentifier.class).invoke(b, id);
+            commit(b);
+            return "ok";
+        } catch (Throwable t) {
+            return why(t);
+        }
+    }
+
     @Override
     public String run(String cmd) {
         Process p = null;

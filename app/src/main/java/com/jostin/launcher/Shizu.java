@@ -100,7 +100,13 @@ final class Shizu {
         if (app != null) return;
         app = c.getApplicationContext();
         try {
-            Shizuku.addBinderReceivedListenerSticky(Shizu::fire, MAIN);
+            Shizuku.addBinderReceivedListenerSticky(() -> {
+                fire();
+                // Al conectar (p. ej. después de reiniciar) se revisa si hay que volver a poner los colores exactos
+                if (ColorExacto.on(app)) RUN.execute(() -> {
+                    if (listo(app)) ColorExacto.reapplyIfNeeded(app);
+                });
+            }, MAIN);
             Shizuku.addBinderDeadListener(() -> {
                 shell = null;
                 binding = false;
@@ -287,6 +293,26 @@ final class Shizu {
         } catch (Throwable t) {
             shell = null;
             return new Res(-1, String.valueOf(t));
+        } finally {
+            MAIN.postDelayed(CLOSE, IDLE_MS);
+        }
+    }
+
+    interface Call {
+        String on(IShell s) throws Exception;
+    }
+
+    /** Llama otra función del servicio de shell (no un comando). Solo en hilo de fondo; null sin Shizuku. */
+    static String call(Context c, Call f) {
+        init(c);
+        IShell s = connect();
+        if (s == null) return null;
+        MAIN.removeCallbacks(CLOSE);
+        try {
+            return f.on(s);
+        } catch (Throwable t) {
+            shell = null;
+            return String.valueOf(t);
         } finally {
             MAIN.postDelayed(CLOSE, IDLE_MS);
         }

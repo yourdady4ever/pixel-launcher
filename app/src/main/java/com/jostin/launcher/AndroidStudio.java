@@ -39,12 +39,14 @@ final class AndroidStudio {
         sys.addView(Ctl.action(a, Icons.BOX, "Congeladas", "Regresarlas", v -> SistemaActivity.open(a, SistemaActivity.CONGELADAS)));
         sys.addView(Ctl.action(a, Icons.GRID, "Memoria RAM", "Top 15", v -> SistemaActivity.open(a, SistemaActivity.RAM)));
         col.addView(sys);
+        LinearLayout exact = exactColors(a, h);
         Runnable paint = () -> {
             Shizu.Estado e = Shizu.estado(a);
             shz.setText("● " + Shizu.texto(a));
             shz.setTextColor(e == Shizu.Estado.LISTO ? Ui.TEXT : Ui.MUTED);
             ask.setVisibility(e == Shizu.Estado.LISTO || e == Shizu.Estado.NO_INSTALADO ? View.GONE : View.VISIBLE);
             sys.setVisibility(e == Shizu.Estado.LISTO ? View.VISIBLE : View.GONE);
+            exact.setVisibility(e == Shizu.Estado.LISTO ? View.VISIBLE : View.GONE);
         };
         paint.run();
         // Se repinta solo cuando Shizuku arranca, se cae o da el permiso (sin revisar cada rato)
@@ -96,6 +98,7 @@ final class AndroidStudio {
             Prefs.setAndroidStyle(a, v);
             SystemWall.sync(a);
         }));
+        col.addView(exact);
 
         // ---------- Botones ----------
         // Poderes extra con el mismo permiso de arriba; todo se puede deshacer
@@ -150,6 +153,42 @@ final class AndroidStudio {
                 bg(a, h, () -> PanelQs.restore(a), "Listo, quedó como estaba", "No pude regresarlo");
             }));
         }
+    }
+
+    /** Colores exactos con FabricatedOverlay: elegir, ver cómo quedan, aplicar o regresar. */
+    private static LinearLayout exactColors(Activity a, Studio.Host h) {
+        LinearLayout box = new LinearLayout(a);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.addView(Ctl.section(a, "Colores exactos (Shizuku)"));
+        box.addView(note(a, "Pone en Android justo el color que elijas, con sus tonos claros y oscuros. Abajo ves cómo queda antes de aplicarlo."));
+        int seed = ColorExacto.seed(a);
+        int[] colors = new int[ColorExacto.PRESETS.length + 1];
+        colors[0] = Prefs.accentColor(a);
+        System.arraycopy(ColorExacto.PRESETS, 0, colors, 1, ColorExacto.PRESETS.length);
+        int sel = 0;
+        for (int i = 0; i < colors.length; i++) if (colors[i] == seed) sel = i;
+        ColorExacto.Preview prev = new ColorExacto.Preview(a, colors[sel]);
+        final int[] pick = {colors[sel]};
+        box.addView(Ctl.swatches(a, colors, sel, i -> {
+            pick[0] = colors[i];
+            prev.setSeed(colors[i]);
+        }));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.topMargin = Ui.dp(a, 8);
+        lp.bottomMargin = Ui.dp(a, 8);
+        box.addView(prev, lp);
+        box.addView(Ctl.action(a, Icons.CHECK, "Aplicar estos colores", null, v -> {
+            Sheet.pill(a, h.backdrop(), "Aplicando…");
+            new Thread(() -> {
+                String err = ColorExacto.apply(a, pick[0]);
+                a.runOnUiThread(() -> Sheet.pill(a, h.backdrop(), err == null ? "Listo, colores puestos" : err));
+            }, "jostin-colores").start();
+        }));
+        box.addView(Ctl.action(a, Icons.HISTORY, "Regresar a los colores originales", null, v -> new Thread(() -> {
+            String err = ColorExacto.restore(a);
+            a.runOnUiThread(() -> Sheet.pill(a, h.backdrop(), err == null ? "Listo, regresé los colores de Android" : err));
+        }, "jostin-colores").start()));
+        return box;
     }
 
     private interface Job {

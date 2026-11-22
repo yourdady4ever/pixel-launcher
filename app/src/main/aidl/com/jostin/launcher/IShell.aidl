@@ -7,4 +7,11 @@ interface IShell {
 
     // Corre un comando con sh -c; regresa «código\nsalida»
     String run(String cmd) = 1;
+
+    // Crea (o reemplaza) y prende un FabricatedOverlay sobre «android». spec = "recurso=AARRGGBB;…"
+    // Regresa "ok N" o el error
+    String fabricate(String name, String spec) = 2;
+
+    // Lo quita por completo (los colores regresan a los de Android)
+    String unfabricate(String name) = 3;
 }
