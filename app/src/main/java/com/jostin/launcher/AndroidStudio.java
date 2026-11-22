@@ -21,6 +21,36 @@ final class AndroidStudio {
     }
 
     static void fill(Activity a, Studio.Host h, LinearLayout col) {
+        // ---------- Shizuku ----------
+        col.addView(Ctl.section(a, "Shizuku"));
+        TextView shz = note(a, "");
+        col.addView(shz);
+        View ask = Ctl.action(a, Icons.CHECK, "Conectar con Shizuku", null, v -> {
+            String m = Shizu.pedir(a);
+            if (m != null) Sheet.pill(a, h.backdrop(), m);
+        });
+        col.addView(ask);
+        Runnable paint = () -> {
+            Shizu.Estado e = Shizu.estado(a);
+            shz.setText("● " + Shizu.texto(a));
+            shz.setTextColor(e == Shizu.Estado.LISTO ? Ui.TEXT : Ui.MUTED);
+            ask.setVisibility(e == Shizu.Estado.LISTO || e == Shizu.Estado.NO_INSTALADO ? View.GONE : View.VISIBLE);
+        };
+        paint.run();
+        // Se repinta solo cuando Shizuku arranca, se cae o da el permiso (sin revisar cada rato)
+        shz.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+            @Override
+            public void onViewAttachedToWindow(View v) {
+                Shizu.watch(paint);
+                paint.run();
+            }
+
+            @Override
+            public void onViewDetachedFromWindow(View v) {
+                Shizu.unwatch(paint);
+            }
+        });
+
         // ---------- Colores ----------
         col.addView(Ctl.section(a, "Colores de Android"));
         boolean granted = SystemColors.granted(a);
