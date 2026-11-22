@@ -42,8 +42,20 @@ android {
         abortOnError false
     }
 
+    // El servicio que corre comandos con Shizuku se habla por AIDL
+    buildFeatures {
+        aidl true
+    }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+}
+
+dependencies {
+    // Shizuku: comandos de sistema sin root (si no está, todo lo extra se esconde)
+    def shizuku = '13.1.5'
+    implementation "dev.rikka.shizuku:api:$shizuku"
+    implementation "dev.rikka.shizuku:provider:$shizuku"
 }

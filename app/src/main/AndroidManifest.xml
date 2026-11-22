@@ -27,6 +27,8 @@
 
     <!-- Para poder ver y abrir las apps instaladas (Android 11+) -->
     <queries>
+        <!-- Shizuku, para saber si está instalado -->
+        <package android:name="moe.shizuku.privileged.api" />
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
@@ -181,6 +183,15 @@
                 <data android:scheme="jostinos" android:host="pez" />
             </intent-filter>
         </activity>
+
+        <!-- Por aquí Shizuku le entrega su conexión a Jostin (solo Shizuku puede usarlo) -->
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:multiprocess="false"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
         <!-- Respuesta del instalador al actualizar Jostin OS -->
         <receiver android:name=".Updater$Done" android:exported="false" />
