@@ -24,6 +24,8 @@
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <!-- Avisos del pez cuando tiene mucha hambre o está muy triste -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Ver todas las apps (también las congeladas) para las pantallas de sistema; es un launcher -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" tools:ignore="QueryAllPackagesPermission" />
 
     <!-- Para poder ver y abrir las apps instaladas (Android 11+) -->
     <queries>
@@ -102,6 +104,13 @@
             android:exported="false"
             android:screenOrientation="portrait"
             android:windowSoftInputMode="adjustResize" />
+
+        <!-- Limpiar, apps poco usadas, congeladas y RAM (con Shizuku) -->
+        <activity
+            android:name=".SistemaActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:screenOrientation="portrait" />
 
         <!-- La página del pez de estudio en pantalla completa (se abre al tocar su widget) -->
         <activity

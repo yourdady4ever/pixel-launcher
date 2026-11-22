@@ -30,11 +30,21 @@ final class AndroidStudio {
             if (m != null) Sheet.pill(a, h.backdrop(), m);
         });
         col.addView(ask);
+        // Funciones de sistema: solo existen con Shizuku listo
+        LinearLayout sys = new LinearLayout(a);
+        sys.setOrientation(LinearLayout.VERTICAL);
+        sys.addView(Ctl.section(a, "Funciones de sistema"));
+        sys.addView(Ctl.action(a, Icons.SPARK, "Limpiar", "Cerrar apps", v -> SistemaActivity.open(a, SistemaActivity.LIMPIAR)));
+        sys.addView(Ctl.action(a, Icons.HISTORY, "Apps poco usadas", "Congelar o quitar", v -> SistemaActivity.open(a, SistemaActivity.POCO)));
+        sys.addView(Ctl.action(a, Icons.BOX, "Congeladas", "Regresarlas", v -> SistemaActivity.open(a, SistemaActivity.CONGELADAS)));
+        sys.addView(Ctl.action(a, Icons.GRID, "Memoria RAM", "Top 15", v -> SistemaActivity.open(a, SistemaActivity.RAM)));
+        col.addView(sys);
         Runnable paint = () -> {
             Shizu.Estado e = Shizu.estado(a);
             shz.setText("● " + Shizu.texto(a));
             shz.setTextColor(e == Shizu.Estado.LISTO ? Ui.TEXT : Ui.MUTED);
             ask.setVisibility(e == Shizu.Estado.LISTO || e == Shizu.Estado.NO_INSTALADO ? View.GONE : View.VISIBLE);
+            sys.setVisibility(e == Shizu.Estado.LISTO ? View.VISIBLE : View.GONE);
         };
         paint.run();
         // Se repinta solo cuando Shizuku arranca, se cae o da el permiso (sin revisar cada rato)
