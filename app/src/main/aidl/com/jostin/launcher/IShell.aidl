@@ -14,4 +14,9 @@ interface IShell {
 
     // Lo quita por completo (los colores regresan a los de Android)
     String unfabricate(String name) = 3;
+
+    // Bloquea partes de la barra de Android (flags de StatusBarManager; 0 = quitar todo).
+    // El bloqueo queda amarrado a «token», que vive en el launcher: si Jostin se cierra o truena,
+    // Android lo quita solo.
+    String statusBar(IBinder token, int flags) = 4;
 }

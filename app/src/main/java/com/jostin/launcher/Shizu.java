@@ -103,6 +103,8 @@ final class Shizu {
             Shizuku.addBinderReceivedListenerSticky(() -> {
                 fire();
                 // Al conectar (p. ej. después de reiniciar) se revisa si hay que volver a poner los colores exactos
+                // Y el bloqueo del panel de Android, si el panel propio está activado
+                if (PanelPropio.enabled(app)) PanelPropio.sync(app);
                 if (ColorExacto.on(app)) RUN.execute(() -> {
                     if (listo(app)) ColorExacto.reapplyIfNeeded(app);
                 });

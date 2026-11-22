@@ -114,6 +114,17 @@
             android:excludeFromRecents="true"
             android:screenOrientation="portrait" />
 
+        <!-- Panel de notificaciones propio (lo abre la franja de arriba) -->
+        <activity
+            android:name=".PanelActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:launchMode="singleInstance"
+            android:screenOrientation="portrait"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
         <!-- La página del pez de estudio en pantalla completa (se abre al tocar su widget) -->
         <activity
             android:name=".PezActivity"

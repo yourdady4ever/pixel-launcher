@@ -92,6 +92,18 @@ public class ShellService extends IShell.Stub {
     }
 
     @Override
+    public String statusBar(android.os.IBinder token, int flags) {
+        try {
+            Object binder = Class.forName("android.os.ServiceManager").getMethod("getService", String.class).invoke(null, "statusbar");
+            Object sb = Class.forName("com.android.internal.statusbar.IStatusBarService$Stub").getMethod("asInterface", android.os.IBinder.class).invoke(null, binder);
+            sb.getClass().getMethod("disable", int.class, android.os.IBinder.class, String.class).invoke(sb, flags, token, SHELL_PKG);
+            return "ok";
+        } catch (Throwable t) {
+            return why(t);
+        }
+    }
+
+    @Override
     public String run(String cmd) {
         Process p = null;
         try {

@@ -141,6 +141,7 @@ final class AndroidStudio {
             }
         }
         col.addView(note(a, "Wi-Fi, Bluetooth y Modo avión se prenden y apagan con Shizuku; sin Shizuku abren el ajuste de Android. Limpiar abre la lista para confirmar."));
+        ownPanel(a, h, col);
         if (PanelQs.canWrite(a)) {
             col.addView(Ctl.action(a, Icons.SWAP, "Acomodar el panel solo", "Cambiar los de Google", v -> Sheet.show(a, h.backdrop(),
                     "¿Cambiar Internet, Bluetooth y Modo avión por los de Jostin? Se guarda cómo estaba.",
@@ -189,6 +190,37 @@ final class AndroidStudio {
             a.runOnUiThread(() -> Sheet.pill(a, h.backdrop(), err == null ? "Listo, regresé los colores de Android" : err));
         }, "jostin-colores").start()));
         return box;
+    }
+
+    /** Panel de notificaciones propio: apagado de fábrica, con salida de emergencia siempre visible. */
+    static void ownPanel(Activity a, Studio.Host h, LinearLayout col) {
+        col.addView(Ctl.section(a, "Panel propio"));
+        boolean acc = LockService.instance != null, notif = Media.hasAccess(a), shz = Shizu.listo(a);
+        col.addView(note(a, "Una franja delgada arriba abre tu panel desde cualquier app: botones, brillo, música y notificaciones. "
+                + "Con Shizuku, el de Android se bloquea mientras usas el tuyo (se quita solo al apagar la pantalla o si Jostin falla).\n"
+                + (acc ? "✓" : "✗") + " Accesibilidad de Jostin   " + (notif ? "✓" : "✗") + " Acceso a notificaciones   " + (shz ? "✓" : "✗") + " Shizuku"));
+        col.addView(Ctl.toggle(a, "Usar mi panel de notificaciones", "Apagado = el de Android de siempre.", PanelPropio.enabled(a), on -> {
+            PanelPropio.setEnabled(a, on);
+            if (!on) {
+                PanelPropio.emergency(a);
+                return;
+            }
+            if (!Media.hasAccess(a)) {
+                Sheet.pill(a, h.backdrop(), "Dale acceso a notificaciones a Jostin");
+                Media.requestAccess(a);
+            } else if (LockService.instance == null) {
+                Sheet.pill(a, h.backdrop(), "Activa la accesibilidad de Jostin OS");
+                try {
+                    a.startActivity(new android.content.Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS));
+                } catch (Exception ignored) {
+                    // nada
+                }
+            }
+        }));
+        col.addView(Ctl.action(a, Icons.LOCK, "Desbloquear el panel de Android", "Emergencia", v -> {
+            PanelPropio.emergency(a);
+            Sheet.pill(a, h.backdrop(), "Listo, el panel de Android ya baja");
+        }));
     }
 
     private interface Job {
