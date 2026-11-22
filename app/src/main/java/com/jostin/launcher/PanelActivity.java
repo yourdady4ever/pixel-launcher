@@ -90,7 +90,7 @@ public class PanelActivity extends Activity implements Media.Listener {
         // ---- Hora ----
         LinearLayout head = new LinearLayout(this);
         head.setGravity(Gravity.CENTER_VERTICAL);
-        TextView clock = Ui.text(this, new SimpleDateFormat("HH:mm", MainActivity.ES).format(new Date()), 34, Ui.TEXT, Ui.MEDIUM);
+        TextView clock = Ui.text(this, android.text.format.DateFormat.getTimeFormat(this).format(new Date()), 34, Ui.TEXT, Ui.MEDIUM);
         head.addView(clock);
         TextView date = Ui.text(this, "  " + new SimpleDateFormat("EEE d MMM", MainActivity.ES).format(new Date()), 14, Ui.MUTED, Ui.REGULAR);
         head.addView(date, new LinearLayout.LayoutParams(0, -2, 1f));

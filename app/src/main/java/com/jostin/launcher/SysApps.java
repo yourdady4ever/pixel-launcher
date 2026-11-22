@@ -200,12 +200,22 @@ final class SysApps {
             out.add(a);
         }
         Collections.sort(out, (x, y) -> Long.compare(y.kb, x.kb));
-        if (out.size() > 15) out = new ArrayList<>(out.subList(0, 15));
+        // Solo apps (no procesos nativos como «vendor…@1.0-service», que no se pueden cerrar)
+        List<App> top = new ArrayList<>();
+        PackageManager pm = c.getPackageManager();
         for (App a : out) {
-            a.label = label(c, a.pkg);
-            a.system = isSystem(c, a.pkg);
+            if (top.size() >= 15) break;
+            try {
+                ApplicationInfo ai = pm.getApplicationInfo(a.pkg, 0);
+                CharSequence l = ai.loadLabel(pm);
+                a.label = l == null ? a.pkg : l.toString();
+                a.system = (ai.flags & ApplicationInfo.FLAG_SYSTEM) != 0;
+                top.add(a);
+            } catch (Exception ignored) {
+                // no es una app
+            }
         }
-        return out;
+        return top;
     }
 
     private static String section(String all, String head) {

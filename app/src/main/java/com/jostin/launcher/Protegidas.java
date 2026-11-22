@@ -42,7 +42,26 @@ final class Protegidas {
         // Spin by OXXO: cualquier paquete que se llame así, por si cambia el nombre exacto
         String low = pkg.toLowerCase(Locale.ROOT);
         if (low.contains("spin") || low.contains("oxxo")) return true;
-        return pkg.equals(dialer(c)) || pkg.equals(sms(c)) || pkg.equals(keyboard(c)) || pkg.equals(wallpaper(c));
+        if (pkg.equals(dialer(c)) || pkg.equals(sms(c)) || pkg.equals(keyboard(c)) || pkg.equals(wallpaper(c))) return true;
+        // Lo que trabaja en segundo plano a propósito: accesibilidad, lectores de notificaciones, asistente y VPN
+        return inSetting(c, "enabled_accessibility_services", pkg) || inSetting(c, "enabled_notification_listeners", pkg)
+                || inSetting(c, "assistant", pkg) || inSetting(c, "voice_interaction_service", pkg) || inSetting(c, "always_on_vpn_app", pkg);
+    }
+
+    /** ¿El ajuste seguro menciona ese paquete? (listas tipo «pkg/.Clase:pkg2/.Otra»). */
+    private static boolean inSetting(Context c, String key, String pkg) {
+        try {
+            String v = Settings.Secure.getString(c.getContentResolver(), key);
+            if (v == null || v.isEmpty()) return false;
+            for (String part : v.split(":")) {
+                String p = part.trim();
+                int k = p.indexOf('/');
+                if ((k > 0 ? p.substring(0, k) : p).equals(pkg)) return true;
+            }
+        } catch (Exception ignored) {
+            // nada
+        }
+        return false;
     }
 
     private static String dialer(Context c) {
