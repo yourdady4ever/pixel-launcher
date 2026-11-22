@@ -138,6 +138,7 @@ public class MainActivity extends Activity implements Studio.Host, Drawer.Host, 
     protected void onCreate(Bundle saved) {
         super.onCreate(saved);
         Bitacora.init(this);
+        Shizu.init(this);
         Ui.init(this);
         Sound.init(this);
         Theme.recompute(this);
