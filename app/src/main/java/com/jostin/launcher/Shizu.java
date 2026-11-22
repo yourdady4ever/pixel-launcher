@@ -105,6 +105,7 @@ final class Shizu {
                 // Al conectar (p. ej. después de reiniciar) se revisa si hay que volver a poner los colores exactos
                 // Y el bloqueo del panel de Android, si el panel propio está activado
                 if (PanelPropio.enabled(app)) PanelPropio.sync(app);
+                PanelPropio.rebindAccessibility(app);
                 if (ColorExacto.on(app)) RUN.execute(() -> {
                     if (listo(app)) ColorExacto.reapplyIfNeeded(app);
                 });
@@ -273,6 +274,12 @@ final class Shizu {
             if (shell == null) binding = false;
         }
         return shell;
+    }
+
+    /** El servicio de shell solo si ya está abierto (sin esperar ni usar el hilo principal). */
+    static IShell bound() {
+        IShell s = shell;
+        return s != null && s.asBinder().pingBinder() ? s : null;
     }
 
     /** Corre un comando y espera el resultado. Solo desde un hilo de fondo. Sin Shizuku regresa null. */

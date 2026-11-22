@@ -216,6 +216,41 @@ final class PanelPropio {
         });
     }
 
+    /**
+     * Jostin está tronando: se suelta el bloqueo en ese instante y, si no se pudo, el proceso se cierra
+     * ya (sin esperar el aviso de error), para que Android lo quite al morir el TOKEN.
+     */
+    static void onCrash() {
+        if (!blocked) return;
+        try {
+            IShell s = Shizu.bound();
+            if (s != null && "ok".equals(s.statusBar(TOKEN, 0))) {
+                blocked = false;
+                return;
+            }
+        } catch (Throwable ignored) {
+            // se cierra abajo
+        }
+        android.os.Process.killProcess(android.os.Process.myPid());
+    }
+
+    /**
+     * Si cerraste Jostin a la fuerza, Android deja su accesibilidad activada pero sin conectar.
+     * Con Shizuku se vuelve a escribir la misma lista (con un «:» de más) para que Android la reconecte.
+     * Nunca agrega ni quita servicios: solo reconecta lo que tú ya activaste.
+     */
+    static void rebindAccessibility(Context c) {
+        Context app = c.getApplicationContext();
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> BG.execute(() -> {
+            if (LockService.instance != null || !Shizu.listo(app)) return;
+            String v = android.provider.Settings.Secure.getString(app.getContentResolver(), "enabled_accessibility_services");
+            String me = new android.content.ComponentName(app, LockService.class).flattenToString();
+            if (v == null || !(":" + v + ":").contains(":" + me + ":")) return;
+            String nv = v.endsWith(":") ? v.substring(0, v.length() - 1) : v + ":";
+            Shizu.runSync(app, "settings put secure enabled_accessibility_services " + Shizu.q(nv));
+        }), 4000);
+    }
+
     /** Salida de emergencia: el panel de Android regresa ya. */
     static void emergency(Context c) {
         Context app = c.getApplicationContext();

@@ -43,6 +43,8 @@ final class Bitacora {
         Thread.UncaughtExceptionHandler prev = Thread.getDefaultUncaughtExceptionHandler();
         Thread.setDefaultUncaughtExceptionHandler((t, e) -> {
             error("Cierre inesperado en " + t.getName(), e);
+            // Si el panel de Android está bloqueado, se suelta ya (si no, queda bloqueado mientras sale el aviso de error)
+            PanelPropio.onCrash();
             if (prev != null) prev.uncaughtException(t, e);
         });
         log("Jostin OS " + version(c) + " abrió · Android " + Build.VERSION.RELEASE + " · " + Build.MODEL);
