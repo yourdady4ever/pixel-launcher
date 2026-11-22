@@ -40,24 +40,18 @@ public class QsTiles {
      * sin Shizuku el botón abre el ajuste normal de Android.
      */
     abstract static class Toggle extends TileService {
-        abstract String label();
-
-        abstract boolean on();
-
-        abstract String cmd(boolean turnOn);
-
-        abstract Intent settings();
+        abstract int which();
 
         @Override
         public void onStartListening() {
-            paint(on());
+            paint(Switches.on(this, which()));
         }
 
         void paint(boolean on) {
             Tile t = getQsTile();
             if (t == null) return;
             t.setState(on ? Tile.STATE_ACTIVE : Tile.STATE_INACTIVE);
-            t.setLabel(label());
+            t.setLabel(Switches.LABELS[which()]);
             if (Build.VERSION.SDK_INT >= 29) t.setSubtitle(on ? "Encendido" : "Apagado");
             t.updateTile();
         }
@@ -65,88 +59,37 @@ public class QsTiles {
         @Override
         public void onClick() {
             if (!Shizu.listo(this)) {
-                open(this, settings());
+                open(this, Switches.settings(which()));
                 return;
             }
-            boolean want = !on();
+            boolean want = !Switches.on(this, which());
             paint(want);
-            Shizu.run(this, cmd(want), r -> {
-                if (r == null || !r.ok()) open(this, settings());
+            Shizu.run(this, Switches.cmd(which(), want), r -> {
+                if (r == null || !r.ok()) open(this, Switches.settings(which()));
                 // Android tarda un poco en cambiar; se vuelve a leer el estado real
-                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> paint(on()), 1500);
+                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> paint(Switches.on(this, which())), 1500);
             });
-        }
-
-        boolean global(String key) {
-            return android.provider.Settings.Global.getInt(getContentResolver(), key, 0) != 0;
         }
     }
 
     public static class Wifi extends Toggle {
         @Override
-        String label() {
-            return "Wi-Fi";
-        }
-
-        @Override
-        boolean on() {
-            android.net.wifi.WifiManager w = (android.net.wifi.WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
-            return w != null && w.isWifiEnabled();
-        }
-
-        @Override
-        String cmd(boolean turnOn) {
-            return "svc wifi " + (turnOn ? "enable" : "disable");
-        }
-
-        @Override
-        Intent settings() {
-            return new Intent(Build.VERSION.SDK_INT >= 29 ? android.provider.Settings.Panel.ACTION_INTERNET_CONNECTIVITY : android.provider.Settings.ACTION_WIFI_SETTINGS);
+        int which() {
+            return Switches.WIFI;
         }
     }
 
     public static class Bt extends Toggle {
         @Override
-        String label() {
-            return "Bluetooth";
-        }
-
-        @Override
-        boolean on() {
-            return global("bluetooth_on");
-        }
-
-        @Override
-        String cmd(boolean turnOn) {
-            String v = turnOn ? "enable" : "disable";
-            return "svc bluetooth " + v + " || cmd bluetooth_manager " + v;
-        }
-
-        @Override
-        Intent settings() {
-            return new Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS);
+        int which() {
+            return Switches.BT;
         }
     }
 
     public static class Plane extends Toggle {
         @Override
-        String label() {
-            return "Modo avión";
-        }
-
-        @Override
-        boolean on() {
-            return global(android.provider.Settings.Global.AIRPLANE_MODE_ON);
-        }
-
-        @Override
-        String cmd(boolean turnOn) {
-            return "cmd connectivity airplane-mode " + (turnOn ? "enable" : "disable");
-        }
-
-        @Override
-        Intent settings() {
-            return new Intent(android.provider.Settings.ACTION_AIRPLANE_MODE_SETTINGS);
+        int which() {
+            return Switches.PLANE;
         }
     }
 
