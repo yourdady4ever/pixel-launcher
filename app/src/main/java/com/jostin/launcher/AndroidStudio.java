@@ -130,8 +130,38 @@ final class AndroidStudio {
                     Sheet.pill(a, h.backdrop(), "Copiado; pégalo en la terminal de tu PC");
                 }))));
         col.addView(Ctl.section(a, "Botones en los ajustes rápidos"));
-        col.addView(Ctl.action(a, Icons.PLUS, "Agregar los botones de Jostin", "3", v -> addTiles(a, h)));
-        col.addView(note(a, "Modo estudio, Otro fondo y Jarvis, junto a los de Wi-Fi y Bluetooth en la barra de arriba. Si no aparecen, baja la barra, toca el lápiz y arrástralos."));
+        col.addView(Ctl.action(a, Icons.PLUS, "Agregar los botones de Jostin", String.valueOf(QsTiles.NAMES.length), v -> addTiles(a, h)));
+        if (Build.VERSION.SDK_INT >= 33) {
+            for (int i = 0; i < QsTiles.NAMES.length; i++) {
+                final int k = i;
+                col.addView(Ctl.action(a, Icons.PLUS, QsTiles.LABELS[i], "Agregar", v -> request(a, h, k, true)));
+            }
+        }
+        col.addView(note(a, "Wi-Fi, Bluetooth y Modo avión se prenden y apagan con Shizuku; sin Shizuku abren el ajuste de Android. Limpiar abre la lista para confirmar."));
+        if (PanelQs.canWrite(a)) {
+            col.addView(Ctl.action(a, Icons.SWAP, "Acomodar el panel solo", "Cambiar los de Google", v -> Sheet.show(a, h.backdrop(),
+                    "¿Cambiar Internet, Bluetooth y Modo avión por los de Jostin? Se guarda cómo estaba.",
+                    Sheet.item("Sí, acomodarlo", Icons.CHECK, () -> bg(a, h, () -> PanelQs.arrange(a), "Listo, ya están los de Jostin", "No pude cambiar el panel")))));
+            col.addView(Ctl.action(a, Icons.HISTORY, "Regresar el panel como estaba", null, v -> {
+                if (!PanelQs.saved(a)) {
+                    Sheet.pill(a, h.backdrop(), "No lo he cambiado");
+                    return;
+                }
+                bg(a, h, () -> PanelQs.restore(a), "Listo, quedó como estaba", "No pude regresarlo");
+            }));
+        }
+    }
+
+    private interface Job {
+        boolean run();
+    }
+
+    /** Corre algo que puede usar Shizuku fuera del hilo principal y avisa cómo le fue. */
+    private static void bg(Activity a, Studio.Host h, Job job, String ok, String bad) {
+        new Thread(() -> {
+            boolean r = job.run();
+            a.runOnUiThread(() -> Sheet.pill(a, h.backdrop(), r ? ok : bad));
+        }, "jostin-panel").start();
     }
 
     private static void addTiles(Activity a, Studio.Host h) {
@@ -142,24 +172,26 @@ final class AndroidStudio {
             return;
         }
         if (Build.VERSION.SDK_INT >= 33) {
-            request(a, h, 0);
+            request(a, h, 0, false);
             return;
         }
         Sheet.pill(a, h.backdrop(), "Baja la barra, toca el lápiz y arrastra los de Jostin");
     }
 
     /** Android 13+: pregunta uno por uno con su ventana oficial. */
-    private static void request(Activity a, Studio.Host h, int i) {
+    private static void request(Activity a, Studio.Host h, int i, boolean one) {
         if (Build.VERSION.SDK_INT < 33 || i >= QsTiles.NAMES.length) return;
         StatusBarManager sb = a.getSystemService(StatusBarManager.class);
         if (sb == null) return;
-        String[] labels = {"Modo estudio", "Otro fondo", "Jarvis"};
-        String[] icons = {"qs_study", "qs_wall", "qs_spark"};
         ComponentName cn = new ComponentName(a, QsTiles.class.getName() + "$" + QsTiles.NAMES[i]);
+        Runnable next = () -> {
+            if (!one) request(a, h, i + 1, false);
+        };
         try {
-            sb.requestAddTileService(cn, labels[i], Icon.createWithResource(a, a.getResources().getIdentifier(icons[i], "drawable", a.getPackageName())), a.getMainExecutor(), r -> a.runOnUiThread(() -> request(a, h, i + 1)));
+            sb.requestAddTileService(cn, QsTiles.LABELS[i], Icon.createWithResource(a, a.getResources().getIdentifier(QsTiles.ICONS[i], "drawable", a.getPackageName())),
+                    a.getMainExecutor(), r -> a.runOnUiThread(next));
         } catch (Exception e) {
-            request(a, h, i + 1);
+            next.run();
         }
     }
 }
