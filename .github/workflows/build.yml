@@ -1,8 +1,10 @@
 name: Compilar APK
 
+# main: solo compila (debug, para revisar). Tag vX.Y.Z: APK firmado y release (Obtainium y el actualizador la siguen).
 on:
   push:
     branches: [ main ]
+    tags: [ 'v*.*.*' ]
   workflow_dispatch:
 
 permissions:
@@ -23,15 +25,22 @@ jobs:
         with:
           gradle-version: '8.9'
 
+      - name: Compilar debug (push a main)
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: gradle assembleDebug --no-daemon --stacktrace
+
       - name: Preparar la llave de firma
+        if: startsWith(github.ref, 'refs/tags/v')
         env:
           JOSTIN_KEYSTORE_B64: ${{ secrets.JOSTIN_KEYSTORE_B64 }}
         run: |
           if [ -z "$JOSTIN_KEYSTORE_B64" ]; then echo "::error::Faltan los secretos de firma (JOSTIN_KEYSTORE_B64)"; exit 1; fi
           echo "$JOSTIN_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.p12"
 
-      - name: Compilar
+      - name: Compilar release firmado
+        if: startsWith(github.ref, 'refs/tags/v')
         env:
+          JOSTIN_VERSION: ${{ github.ref_name }}
           JOSTIN_STORE_PASSWORD: ${{ secrets.JOSTIN_STORE_PASSWORD }}
           JOSTIN_KEY_ALIAS: ${{ secrets.JOSTIN_KEY_ALIAS }}
           JOSTIN_KEY_PASSWORD: ${{ secrets.JOSTIN_KEY_PASSWORD }}
@@ -42,7 +51,9 @@ jobs:
         run: rm -f "$RUNNER_TEMP/release.p12"
 
       - name: Renombrar APK
-        run: cp app/build/outputs/apk/release/app-release.apk JostinOS.apk
+        run: |
+          if [ -f app/build/outputs/apk/release/app-release.apk ]; then cp app/build/outputs/apk/release/app-release.apk JostinOS.apk
+          else cp app/build/outputs/apk/debug/app-debug.apk JostinOS.apk; fi
 
       - uses: actions/upload-artifact@v4
         with:
@@ -50,12 +61,14 @@ jobs:
           path: JostinOS.apk
 
       - name: Activar KVM para el emulador
+        if: startsWith(github.ref, 'refs/tags/v')
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
       - name: Capturas en emulador
+        if: startsWith(github.ref, 'refs/tags/v')
         continue-on-error: true
         timeout-minutes: 25
         uses: reactivecircus/android-emulator-runner@v2
@@ -69,10 +82,11 @@ jobs:
           script: bash ci/shots.sh
 
       - name: Publicar versión
+        if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.${{ github.run_number }}
-          name: Jostin OS 1.0.${{ github.run_number }}
+          tag_name: ${{ github.ref_name }}
+          name: Jostin OS ${{ github.ref_name }}
           files: |
             JostinOS.apk
             shots/*

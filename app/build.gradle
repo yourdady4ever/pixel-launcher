@@ -10,8 +10,16 @@ android {
         applicationId 'com.jostin.launcher'
         minSdk 26
         targetSdk 34
-        versionCode Integer.parseInt(System.getenv('GITHUB_RUN_NUMBER') ?: '1')
-        versionName "1.0." + (System.getenv('GITHUB_RUN_NUMBER') ?: '1')
+        // Con tag vX.Y.Z la versión sale del tag (código X·10000 + Y·100 + Z); sin tag, del número de compilación
+        def tag = (System.getenv('JOSTIN_VERSION') ?: '').replaceFirst('^v', '')
+        def m = tag =~ /^(\d+)\.(\d+)\.(\d+)$/
+        if (m.matches()) {
+            versionCode m.group(1).toInteger() * 10000 + m.group(2).toInteger() * 100 + m.group(3).toInteger()
+            versionName tag
+        } else {
+            versionCode Integer.parseInt(System.getenv('GITHUB_RUN_NUMBER') ?: '1')
+            versionName "1.0." + (System.getenv('GITHUB_RUN_NUMBER') ?: '1')
+        }
     }
 
     // La llave de firma vive en los secretos de GitHub (nunca en el repo, que es público).
