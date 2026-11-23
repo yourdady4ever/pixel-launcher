@@ -1930,11 +1930,11 @@ final class Gadgets {
 
         /** Panza y ánimo bajan solos desde la última vez que alguien lo cuidó (t). */
         float food(long now) {
-            return decay(food, now, 90);
+            return decay(food, now, 288);
         }
 
         float happy(long now) {
-            return decay(happy, now, 110);
+            return decay(happy, now, 360);
         }
 
         private float decay(double v, long now, double secsPerPoint) {
@@ -2174,7 +2174,7 @@ final class Gadgets {
             if (happy < 25) return 2;
             if (p.fat >= 3) return 5;
             if (happy > 75) return 7;
-            if (happy < 50 && up - lastTouch > 240_000) return 3;
+            if (happy < 40 && up - lastTouch > 600_000) return 3;
             return 8;
         }
 
