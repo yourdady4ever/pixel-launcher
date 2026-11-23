@@ -169,7 +169,7 @@ final class Gadgets {
             new Spec("pendientes", "Pendientes", "Lista que puedes palomear", Icons.TASKS, 4, 2, 2, 1, false),
             new Spec("estudio", "Estudio", "Modo enfoque con temporizador", Icons.FOCUS, 2, 1, 1, 1, false),
             new Spec("jarvis", "Jarvis", "Pregúntale lo que sea a Claude", Icons.SPARK, 2, 1, 1, 1, false),
-            new Spec("pez", "Pez de estudio", "Tu pez en vivo, el mismo de la PC", FISH, 4, 2, 2, 1, false),
+            new Spec("pez", "Pez de estudio", "Tu pez en vivo: juega, dale de comer y límpialo desde aquí", FISH, 4, 3, 2, 1, false),
             new Spec("atajo", "Atajo", "Calculadora, obra, linterna y más", Icons.CALC, 2, 1, 1, 1, false),
             new Spec("cuenta", "Cuenta regresiva", "Días que faltan para una fecha", Icons.HISTORY, 2, 1, 1, 1, false),
             new Spec("sistema", "Sistema", "Batería, almacenamiento y memoria", Icons.SHAPES, 2, 2, 2, 1, false),
@@ -2074,6 +2074,63 @@ final class Gadgets {
         private final android.graphics.Rect vis = new android.graphics.Rect();
         private final float[] hsv = {0f, 0.75f, 1f};
         private final Runnable frame = this::invalidate;
+
+        // ---------- La página del pez dentro del gadget ----------
+        private PezWeb pw;
+        private boolean webShown;
+
+        /** ¿Cabe la página? (necesita unos 300 dp de alto para la pecera, las barras y los botones) */
+        private boolean bigEnough() {
+            return getHeight() - getPaddingTop() - getPaddingBottom() >= dp(300) && getWidth() - getPaddingLeft() - getPaddingRight() >= dp(240);
+        }
+
+        private void ensureWeb() {
+            if (pw != null || PezKey.get(act) == null) return;
+            pw = new PezWeb(act, new PezWeb.Host() {
+                @Override
+                public void onWebState(boolean ok) {
+                    updateWeb();
+                }
+
+                @Override
+                public void onWebLongPress() {
+                    act.itemMenu(item);
+                }
+            });
+            pw.view().setVisibility(INVISIBLE);
+        }
+
+        /** Muestra la página si cargó y cabe; si no, se ve el pez nativo de solo lectura. */
+        private void updateWeb() {
+            boolean show = pw != null && pw.ok() && bigEnough() && PezKey.get(act) != null;
+            if (pw != null) pw.view().setVisibility(show ? VISIBLE : INVISIBLE);
+            if (show != webShown) {
+                webShown = show;
+                invalidate();
+            }
+            syncWeb();
+        }
+
+        /** Corre solo mientras inicio está al frente y el gadget se ve; si no, se pausa para no gastar pila. */
+        private void syncWeb() {
+            if (pw == null) return;
+            boolean fits = bigEnough();
+            boolean on = started && fits && isShown() && getGlobalVisibleRect(vis);
+            if (started && fits) pw.ensure(act);
+            pw.setRunning(on);
+        }
+
+        @Override
+        protected void onSizeChanged(int w, int h, int ow, int oh) {
+            super.onSizeChanged(w, h, ow, oh);
+            post(this::updateWeb);
+        }
+
+        @Override
+        protected void onDetachedFromWindow() {
+            if (pw != null) pw.setRunning(false);
+            super.onDetachedFromWindow();
+        }
         /** Ancho de una letra de la fuente monoespaciada por cada punto de tamaño. */
         private final float adv;
         private boolean still, asleep;
@@ -2194,6 +2251,13 @@ final class Gadgets {
 
         @Override
         void build() {
+            ensureWeb();
+            if (pw != null) {
+                View wv = pw.view();
+                if (wv.getParent() instanceof android.view.ViewGroup) ((android.view.ViewGroup) wv.getParent()).removeView(wv);
+                addView(wv, new FrameLayout.LayoutParams(-1, -1));
+                post(this::updateWeb);
+            }
             // Tocar al pez lo hace hablar; tocar fuera de él abre su página
             setOnClickListener(v -> {
                 if (fishBox.contains(downX, downY)) {
@@ -2235,6 +2299,7 @@ final class Gadgets {
         @Override
         void onScroll() {
             if (started) invalidate();
+            syncWeb();
         }
 
         /** Ánimo temporal; a veces lo dice. true si habló. */
@@ -2336,13 +2401,17 @@ final class Gadgets {
             sleepAt = 0;
             // Al volver a inicio saluda (cuando de verdad se vea)
             wantGreet = true;
+            ensureWeb();
+            if (pw != null && pw.view().getParent() != this) rebuild();
             invalidate();
+            syncWeb();
         }
 
         @Override
         void stop() {
             super.stop();
             removeCallbacks(frame);
+            syncWeb();
         }
 
         /** Descarga en su propio hilo, nunca en el principal; con error se queda el último pez. */
@@ -2416,6 +2485,12 @@ final class Gadgets {
             super.onDraw(c);
             // En la página de al lado sigue "visible" para Android, pero fuera de la pantalla
             boolean seen = isShown() && getGlobalVisibleRect(vis);
+            if (webShown) {
+                syncWeb();
+                removeCallbacks(frame);
+                if (started && seen) postDelayed(frame, 1500);
+                return;
+            }
             try {
                 paint(c, seen);
             } catch (Throwable e) {

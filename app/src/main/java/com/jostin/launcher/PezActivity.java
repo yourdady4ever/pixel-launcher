@@ -23,11 +23,14 @@ public class PezActivity extends Activity {
     static final String URL = "https://pez-estudio.web.app";
 
     private WebView web;
+    /** Abierta: el gadget no debe usar pauseTimers (es de todo el proceso y la congelaría). */
+    static volatile boolean alive;
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
     protected void onCreate(Bundle saved) {
         super.onCreate(saved);
+        alive = true;
         Window w = getWindow();
         w.setBackgroundDrawable(new ColorDrawable(Color.BLACK));
         web = new WebView(this);
@@ -88,7 +91,10 @@ public class PezActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        alive = true;
         web.onResume();
+        // Por si el gadget de inicio pausó los temporizadores al irse a segundo plano
+        web.resumeTimers();
     }
 
     @Override
@@ -118,6 +124,7 @@ public class PezActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        alive = false;
         if (web != null) {
             web.stopLoading();
             web.destroy();
