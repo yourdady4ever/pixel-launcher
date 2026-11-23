@@ -131,8 +131,7 @@ final class AppUsage {
                 if (usm == null) return;
                 long from = startOfDay(), now = System.currentTimeMillis();
                 java.util.Map<String, Long> fg = new java.util.HashMap<>();
-                int[] unlocks = {0};
-                long duoLast = scan(usm, from, now, fg, unlocks);
+                long duoLast = scan(usm, from, now, fg);
                 long tiktokMs = 0;
                 for (String t : TIKTOK) {
                     Long v = fg.get(t);
@@ -143,10 +142,7 @@ final class AppUsage {
                 // Si Duolingo avisó de la racha después de abrirlo, todavía no está hecha
                 boolean duo = duoLast >= from && duoLast > PezTalk.duoAlertAt;
                 int tk = (int) (tiktokMs / 60_000L);
-                // Resumen de cómo va el cel (sin textos de notificaciones ni apps de dinero); viaja solo a la ruta con clave
-                String resumen = CelResumen.build(c, fg, unlocks[0], duo);
-                CelResumen.last = resumen;
-                String same = tk + "/" + duo + "/" + resumen;
+                String same = tk + "/" + duo;
                 // Sin cambios, se sube cuando mucho cada 15 min (para que el pez sepa que sigue vigente)
                 if (same.equals(putLast) && now - putAt < 15 * 60_000L) return;
                 putLast = same;
@@ -154,7 +150,6 @@ final class AppUsage {
                 JSONObject o = new JSONObject();
                 o.put("tiktok", tk);
                 o.put("duo", duo);
-                o.put("resumen", resumen);
                 o.put("t", now);
                 String dest = PezKey.appsCel(c);
                 if (dest == null) return;
@@ -351,9 +346,8 @@ final class AppUsage {
 
     /** La pantallita que explica el permiso antes de mandarte a los ajustes de Android. */
     static void explain(Activity a, Backdrop b) {
-        TextView t = Ui.text(a, "Con «Acceso al uso», el pez sabe cómo va tu cel hoy y te lo comenta: pantalla, tus apps más usadas, desbloqueos, batería, "
-                + "música, cuántas notificaciones tienes por app (nunca su texto ni de quién), tu próximo evento, la alarma, el clima y si ya hiciste Duolingo.\n\n"
-                + "Se sube un resumen corto cada 5 minutos con la pantalla prendida. Bancos, Spin y apps de dinero nunca salen. "
+        TextView t = Ui.text(a, "Con «Acceso al uso», el pez sabe cuántos minutos llevas hoy en TikTok y si ya abriste Duolingo, y te lo comenta." + "\n\n"
+                + "Solo se suben esos dos datos y la hora, cada 5 minutos con la pantalla prendida. Nada de historial ni otras apps. "
                 + "Ojo: esos datos los puede leer quien tenga la dirección de tu pez.", 14, Ui.MUTED, Ui.REGULAR);
         t.setLineSpacing(0, 1.2f);
         t.setPadding(Ui.dp(a, 10), 0, Ui.dp(a, 10), Ui.dp(a, 10));

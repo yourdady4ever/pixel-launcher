@@ -2035,8 +2035,6 @@ final class Gadgets {
             raw = null;
             fetchedAt = 0;
             appsAt = 0;
-            notaAt = 0;
-            nota = null;
             offline = false;
         }
         private static final ExecutorService NET = Executors.newSingleThreadExecutor();
@@ -2087,7 +2085,7 @@ final class Gadgets {
         private String colorOf;
         private int colorVal = 0xFFFFB02E;
         private Pez headFor;
-        private boolean headMade, headOffline, headAsleep, headNota;
+        private boolean headMade, headOffline, headAsleep;
         private long headTick;
         private String head = "";
         // Lo que dice: una burbuja blanca unos segundos
@@ -2150,19 +2148,7 @@ final class Gadgets {
         private float bgW, bgH;
         private int glowCol;
         private String sandRow;
-        private static long appsAt, notaAt;
-        private static volatile JSONObject nota;
-        private long notaSaid;
-
-        /** El recado sin leer (más nuevo que notaSeen y de menos de 18 h), o null. */
-        private String unreadNota(Pez p) {
-            JSONObject n = nota;
-            if (n == null || p == null) return null;
-            long t = n.optLong("t", 0);
-            String txt = n.optString("txt", "").trim();
-            if (txt.isEmpty() || t <= p.notaSeen || System.currentTimeMillis() - t > 18 * 3600_000L) return null;
-            return txt;
-        }
+        private static long appsAt;
 
         PezG(MainActivity a, HomeModel.Item it) {
             super(a, it);
@@ -2226,15 +2212,8 @@ final class Gadgets {
                         speak("📖 " + (d.length() > 160 ? d.substring(0, 159) + "…" : d));
                         return;
                     }
-                    String pend = unreadNota(pz);
-                    if (pend != null && taps < 3) {
-                        speak("✉ " + (pend.length() > 200 ? pend.substring(0, 199) + "…" : pend));
-                        return;
-                    }
                     if (taps < 3 && pz != null && Math.random() < .10 && setMood(LOVE, 15)) return;
-                    String line = PezTalk.clickLine(act);
-                    if (Math.random() < .25) special("el jefe lo acaba de tocar en la pantalla", line);
-                    else speak(line);
+                    speak(PezTalk.clickLine(act));
                 } else {
                     open();
                 }
@@ -2306,31 +2285,6 @@ final class Gadgets {
                 glyphGlow.put(ch, b);
             }
             return b;
-        }
-
-        private static final String[] MOOD_ES = {"dormido", "hambriento", "triste", "aburrido", "fiestero", "llenito", "enamorado", "feliz", "tranquilo", "enojado", "mareado", "sorprendido", "orgulloso"};
-        private int curMood = 8;
-        private float curFood = 100, curHappy = 100;
-        private boolean curSeen, asking;
-
-        /** Momento especial: la IA del pez si se puede (visible, de día, con límites); si no o si falla, la frase normal. */
-        private void special(String extra, String fallback) {
-            if (!curSeen || asking || !PezIA.allowed(act)) {
-                speak(fallback);
-                return;
-            }
-            asking = true;
-            // Lo del momento + cómo va el cel (si compartes el uso)
-            String cel = AppUsage.wanted(act) ? CelResumen.last : null;
-            Pez pz = pez;
-            long now = System.currentTimeMillis();
-            if (pz != null && pz.seenT > 0 && now - pz.seenT > 2 * 3600_000L) extra += "; lleva " + ((now - pz.seenT) / 3600_000L) + " h sin que el jefe le haga caso";
-            if (pz != null && !"PEZ".equals(pz.name)) extra += "; se llama " + pz.name;
-            String ctx = cel == null || cel.isEmpty() ? extra : extra + ". Cómo va su cel: " + cel;
-            PezIA.ask(act, MOOD_ES[curMood], curFood, curHappy, ctx, 3500, t -> {
-                asking = false;
-                speak(t != null ? t : fallback);
-            });
         }
 
         private void speak(String s) {
@@ -2422,16 +2376,6 @@ final class Gadgets {
                         // sin datos de apps
                     }
                 }
-                if (System.currentTimeMillis() - notaAt > 5 * 60_000L) {
-                    notaAt = System.currentTimeMillis();
-                    try {
-                        String u = PezKey.nota(app);
-                        String n = u == null ? null : Weather.get(u);
-                        nota = n == null || n.trim().equals("null") ? null : new JSONObject(n);
-                    } catch (Throwable ignored) {
-                        // sin recado o sin red: se queda el último
-                    }
-                }
                 final JSONObject apps = a;
                 final String body = got;
                 final Pez fresh = p;
@@ -2452,11 +2396,7 @@ final class Gadgets {
                             lastPcT = fresh.t;
                             boolean mimo = ("feed".equals(ev) && Math.random() < .15) || ("play".equals(ev) && Math.random() < .25);
                             setMood(mimo ? LOVE : SURPRISED, mimo ? 15 : 4);
-                            String line = PezTalk.fromPc(act, ev);
-                            if ("feed".equals(ev)) special("el jefe le acaba de dar de comer desde la compu", line);
-                            else if ("play".equals(ev)) special("el jefe acaba de jugar con él desde la compu", line);
-                            else if ("clean".equals(ev)) special("el jefe le acaba de limpiar la pecera desde la compu", line);
-                            else speak(line);
+                            speak(PezTalk.fromPc(act, ev));
                         }
                         // Se guarda solo si cambió, para no escribir en disco cada 15 s
                         if (!body.equals(raw)) {
@@ -2578,10 +2518,6 @@ final class Gadgets {
             ui.setTextSize(hs);
             ui.setTextAlign(Paint.Align.LEFT);
             int mk = mood(p, food, happy, up);
-            curMood = mk;
-            curFood = food;
-            curHappy = happy;
-            curSeen = seen;
             String mood = p == null && offline ? "SIN RED" : offline ? MOOD_OFF[mk] : MOOD_LBL[mk];
             int moodCol = alert ? RED : GREEN;
             ui.clearShadowLayer();
@@ -2596,7 +2532,7 @@ final class Gadgets {
             if (lv != lvlFor || !nm.equals(lvlName)) {
                 lvlName = nm;
                 // Subió de nivel: momento especial
-                if (lv > 0 && PezIA.levelUp(act, lv)) special("acaba de subir a nivel " + lv, "¡Subí a nivel " + lv + "! ★");
+                if (lv > 0 && PezIA.levelUp(act, lv)) speak("¡Subí a nivel " + lv + "! ★");
                 lvlFor = lv;
                 lvlText = lv > 0 ? "C:\\ESTUDIO\\" + nm + ".EXE  NV " + lv : "C:\\ESTUDIO\\" + nm + ".EXE";
             }
@@ -2768,21 +2704,12 @@ final class Gadgets {
             if (now0 != null) {
                 speak(now0);
                 nextChat = Math.max(nextChat, up + 20_000);
-            } else if (seen && !asleep && up > sayUntil && unreadNota(p) != null && nota != null && nota.optLong("t", 0) != notaSaid) {
-                notaSaid = nota.optLong("t", 0);
-                wantGreet = false;
-                String nt = unreadNota(p);
-                speak("✉ " + (nt.length() > 200 ? nt.substring(0, 199) + "…" : nt));
-                nextChat = up + 30_000;
             } else if (seen) {
                 if (wantGreet) {
                     wantGreet = false;
-                    String g = PezTalk.greet(act, food, happy), why = PezIA.greetMoment(act);
                     int days = p == null ? -1 : p.daysTogether(System.currentTimeMillis());
-                    if (Pez.milestone(days) && PezIA.once(act, "dias" + days)) {
-                        special("hoy cumplen " + days + " días juntos el jefe y él; festéjalo", "¡Hoy cumplimos " + days + " días juntos! 🎉");
-                    } else if (why != null) special(why, g);
-                    else speak(g);
+                    if (Pez.milestone(days) && PezIA.once(act, "dias" + days)) speak("¡Hoy cumplimos " + days + " días juntos! 🎉");
+                    else speak(PezTalk.greet(act, food, happy));
                     nextChat = up + 25_000 + (long) (Math.random() * 20_000);
                 } else if (up >= nextChat && up > sayUntil) {
                     nextChat = up + 25_000 + (long) (Math.random() * 20_000);
@@ -2796,14 +2723,10 @@ final class Gadgets {
                             String m = p.mem.get((int) (Math.random() * Math.min(5, p.mem.size())));
                             chat = "Me acuerdo: " + (m.length() > 140 ? m.substring(0, 139) + "…" : m);
                         }
-                        String why = PezIA.allowed(act) ? PezIA.appMoment(act) : null;
-                        if (why != null) special(why, chat);
-                        else speak(chat);
+                        speak(chat);
                     }
                 }
             }
-
-            if (seen) PezIA.markSeen(act);
 
             // Dormido le salen zetas de la cabeza
             if (!still && asleep) {
@@ -3003,10 +2926,8 @@ final class Gadgets {
         }
 
         private String header(Pez p) {
-            boolean hn = unreadNota(p) != null;
             long tick = System.currentTimeMillis() / 60_000L;
-            if (headMade && headFor == p && headOffline == offline && headAsleep == asleep && headNota == hn && headTick == tick) return head;
-            headNota = hn;
+            if (headMade && headFor == p && headOffline == offline && headAsleep == asleep && headTick == tick) return head;
             headTick = tick;
             headMade = true;
             headFor = p;
@@ -3015,7 +2936,6 @@ final class Gadgets {
             String s;
             if (p == null) s = offline ? "> sin conexión" : "> buscando al pez…";
             else if (asleep) s = "> zzz… está dormido";
-            else if (hn) s = "> ✉ te dejó un recado (tócalo)";
             else if (!p.antojo.isEmpty() && (p.ev.isEmpty() || System.currentTimeMillis() - p.t > 10 * 60_000L))
                 s = "> 💭 antojo: " + p.antojo + (p.cravDone ? " ✅" : " ⏳");
             else if (!p.ev.isEmpty()) s = "> " + (p.by.isEmpty() ? "" : p.by + ": ") + p.ev;
