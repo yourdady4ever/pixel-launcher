@@ -129,10 +129,10 @@ final class PezTalk {
         wakeUntil = SystemClock.elapsedRealtime() + 120_000;
     }
 
-    /** Duerme de 2 a 6 de la mañana, salvo que lo acaben de despertar. */
+    /** Duerme de 10 de la noche a 6 de la mañana, salvo que lo acaben de despertar. */
     static boolean sleeping() {
         int h = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
-        return h >= 2 && h < 6 && SystemClock.elapsedRealtime() > wakeUntil;
+        return (h >= 22 || h < 6) && SystemClock.elapsedRealtime() > wakeUntil;
     }
 
     static List<String> seasonal(Context c) {

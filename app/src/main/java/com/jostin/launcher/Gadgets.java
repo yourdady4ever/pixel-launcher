@@ -1928,18 +1928,57 @@ final class Gadgets {
             return o.optString(k, def).trim();
         }
 
-        /** Panza y ánimo bajan solos desde la última vez que alguien lo cuidó (t). */
+        /** Duerme de 10 de la noche a 6 de la mañana (igual que la web y el fondo). */
+        static boolean night(long ms) {
+            long local = ms + java.util.TimeZone.getDefault().getOffset(ms);
+            int h = (int) ((local / 3_600_000L) % 24);
+            return h >= 22 || h < 6;
+        }
+
+        /** {segundos de noche, segundos de día} entre t0 y t1, en pasos de 15 min y máximo 7 días (splitNight de la web). */
+        static double[] splitNight(long t0, long t1) {
+            double n = 0, d = 0;
+            t0 = Math.max(t0 > 0 ? t0 : t1, t1 - 7 * 86_400_000L);
+            for (long x = t0; x < t1; x += 900_000L) {
+                double sec = Math.min(900_000L, t1 - x) / 1000.0;
+                if (night(x)) n += sec;
+                else d += sec;
+            }
+            return new double[]{n, d};
+        }
+
+        // El dibujo lo pide en cada cuadro: se recalcula cada 5 s como mucho
+        private long spT = -1, spKey = -1;
+        private double[] spVal;
+
+        private double[] split(long now) {
+            long key = now / 5000;
+            if (spVal == null || spT != t || spKey != key) {
+                spVal = splitNight(t, now);
+                spT = t;
+                spKey = key;
+            }
+            return spVal;
+        }
+
+        private static float clamp(double v) {
+            return (float) Math.max(0, Math.min(100, v));
+        }
+
+        /** Panza y ánimo bajan solos desde la última vez que alguien lo cuidó (t); de noche la panza baja lento y el ánimo no. */
         float food(long now) {
-            return decay(food, now, 288);
+            if (t <= 0) return clamp(food);
+            double[] sp = split(now);
+            return clamp(food - sp[1] / 288 - sp[0] / 864);
         }
 
         float happy(long now) {
-            return decay(happy, now, 360);
-        }
-
-        private float decay(double v, long now, double secsPerPoint) {
-            double gone = t > 0 ? Math.max(0, now - t) / 1000.0 / secsPerPoint : 0;
-            return (float) Math.max(0, Math.min(100, v - gone));
+            if (t <= 0) return clamp(happy);
+            double[] sp = split(now);
+            double h = happy - sp[1] / 360;
+            // Si durmió y ya amaneció, despierta con el ánimo a la mitad como mínimo
+            if (sp[0] > 0 && !night(now)) h = Math.max(h, 50);
+            return clamp(h);
         }
     }
 
@@ -2390,7 +2429,7 @@ final class Gadgets {
                 seasonHat = mo == 10 && dd >= 25 ? "witch" : mo == 11 && dd <= 2 ? "flower" : mo == 9 && (dd == 15 || dd == 16) ? "sombrero"
                         : mo == 2 && dd == 14 ? "heart" : (mo == 12 && dd == 31) || (mo == 1 && dd <= 2) ? "party" : mo == 12 ? "santa" : null;
             }
-            asleep = hourNow >= 2 && hourNow < 6 && SystemClock.elapsedRealtime() > PezTalk.wakeUntil;
+            asleep = (hourNow >= 22 || hourNow < 6) && SystemClock.elapsedRealtime() > PezTalk.wakeUntil;
             Pez p = pez;
             float food = p == null ? 100 : p.food(now), happy = p == null ? 100 : p.happy(now);
             boolean alert = p != null && (food < 25 || happy < 25);
