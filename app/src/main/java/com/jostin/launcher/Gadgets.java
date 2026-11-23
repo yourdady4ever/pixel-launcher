@@ -1887,8 +1887,15 @@ final class Gadgets {
         /** Cosas que recuerda del jefe (más nuevas primero, sin las olvidadas) y lo que escribió hoy en su diario. */
         final java.util.List<String> mem = new java.util.ArrayList<>();
         final String diaryToday;
+        /** Nombre que le pusiste (en mayúsculas para la terminal; «PEZ» si no tiene), cuándo nació y la última vez que le hiciste caso. */
+        final String name;
+        final long born, seenT;
 
         Pez(JSONObject o) {
+            String nm = str(o, "name", "").toUpperCase(new java.util.Locale("es", "MX")).replaceAll("\\s+", "_").replaceAll("[^A-Z0-9ÁÉÍÓÚÑÜ_-]", "");
+            name = nm.isEmpty() ? "PEZ" : nm.length() > 12 ? nm.substring(0, 12) : nm;
+            born = o.optLong("born", 0);
+            seenT = o.optLong("seen", 0);
             java.util.Set<String> del = new java.util.HashSet<>();
             org.json.JSONArray md = o.optJSONArray("memDel");
             for (int i = 0; md != null && i < md.length(); i++) del.add(md.optString(i, "").toLowerCase(java.util.Locale.ROOT));
@@ -1899,7 +1906,7 @@ final class Gadgets {
                 if (m != null && !m.optString("d", "").trim().isEmpty() && !del.contains(m.optString("d").trim().toLowerCase(java.util.Locale.ROOT))) ms.add(m);
             }
             ms.sort((a, b) -> Long.compare(b.optLong("t", 0), a.optLong("t", 0)));
-            for (JSONObject m : ms) if (mem.size() < 20) mem.add(m.optString("d").trim());
+            for (JSONObject m : ms) if (mem.size() < 30) mem.add(m.optString("d").trim());
             JSONObject di = o.optJSONObject("diary");
             String today = new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(new java.util.Date());
             diaryToday = di == null ? "" : di.optString(today, "").trim();
@@ -1921,6 +1928,16 @@ final class Gadgets {
             int s = look.optInt("size", 28);
             size = s <= 22 ? 22 : s >= 34 ? 34 : 28;
             season = look.optBoolean("season", true);
+        }
+
+        /** Días juntos (desde born), o -1 si no se sabe. */
+        int daysTogether(long now) {
+            return born > 0 && now >= born ? (int) ((now - born) / 86_400_000L) : -1;
+        }
+
+        /** Festeja a los 7, 50, 100 y 365 días, y cada 30. */
+        static boolean milestone(int d) {
+            return d == 7 || d == 50 || d == 100 || d == 365 || (d > 0 && d % 30 == 0);
         }
 
         /** El mayor L con 25·L·(L-1) <= xp. */
@@ -2083,7 +2100,7 @@ final class Gadgets {
         private long battAt;
         private String seasonHat;
         private int lvlFor = -1;
-        private String lvlText = "";
+        private String lvlText = "", lvlName = "";
         // Basurita de la pecera: posiciones fijas, se enseñan más mientras más sucia
         private static final float[] SPX = new float[90], SPY = new float[90];
         private static final String[] SPC = new String[90];
@@ -2277,6 +2294,10 @@ final class Gadgets {
             asking = true;
             // Lo del momento + cómo va el cel (si compartes el uso)
             String cel = AppUsage.wanted(act) ? CelResumen.last : null;
+            Pez pz = pez;
+            long now = System.currentTimeMillis();
+            if (pz != null && pz.seenT > 0 && now - pz.seenT > 2 * 3600_000L) extra += "; lleva " + ((now - pz.seenT) / 3600_000L) + " h sin que el jefe le haga caso";
+            if (pz != null && !"PEZ".equals(pz.name)) extra += "; se llama " + pz.name;
             String ctx = cel == null || cel.isEmpty() ? extra : extra + ". Cómo va su cel: " + cel;
             PezIA.ask(act, MOOD_ES[curMood], curFood, curHappy, ctx, 3500, t -> {
                 asking = false;
@@ -2533,11 +2554,13 @@ final class Gadgets {
             ui.setTextAlign(Paint.Align.LEFT);
             ui.setColor(Ui.alpha(GREEN, 0xC0));
             int lv = p == null ? 0 : p.level();
-            if (lv != lvlFor) {
+            String nm = p == null ? "PEZ" : p.name;
+            if (lv != lvlFor || !nm.equals(lvlName)) {
+                lvlName = nm;
                 // Subió de nivel: momento especial
                 if (lv > 0 && PezIA.levelUp(act, lv)) special("acaba de subir a nivel " + lv, "¡Subí a nivel " + lv + "! ★");
                 lvlFor = lv;
-                lvlText = lv > 0 ? "C:\\ESTUDIO\\PEZ.EXE  NV " + lv : "C:\\ESTUDIO\\PEZ.EXE";
+                lvlText = lv > 0 ? "C:\\ESTUDIO\\" + nm + ".EXE  NV " + lv : "C:\\ESTUDIO\\" + nm + ".EXE";
             }
             String h = PezKey.get(act) == null ? "Conecta tu pez desde la página 🔒" : lvlText;
             int fit = ui.breakText(h, true, Math.max(0, x1 - x0 - moodW), null);
@@ -2711,7 +2734,10 @@ final class Gadgets {
                 if (wantGreet) {
                     wantGreet = false;
                     String g = PezTalk.greet(act, food, happy), why = PezIA.greetMoment(act);
-                    if (why != null) special(why, g);
+                    int days = p == null ? -1 : p.daysTogether(System.currentTimeMillis());
+                    if (Pez.milestone(days) && PezIA.once(act, "dias" + days)) {
+                        special("hoy cumplen " + days + " días juntos el jefe y él; festéjalo", "¡Hoy cumplimos " + days + " días juntos! 🎉");
+                    } else if (why != null) special(why, g);
                     else speak(g);
                     nextChat = up + 25_000 + (long) (Math.random() * 20_000);
                 } else if (up >= nextChat && up > sayUntil) {
