@@ -1884,8 +1884,25 @@ final class Gadgets {
         /** Experiencia (para el nivel), suciedad de la pecera y si se viste según la fecha. */
         final double xp, dirt;
         final boolean season;
+        /** Cosas que recuerda del jefe (más nuevas primero, sin las olvidadas) y lo que escribió hoy en su diario. */
+        final java.util.List<String> mem = new java.util.ArrayList<>();
+        final String diaryToday;
 
         Pez(JSONObject o) {
+            java.util.Set<String> del = new java.util.HashSet<>();
+            org.json.JSONArray md = o.optJSONArray("memDel");
+            for (int i = 0; md != null && i < md.length(); i++) del.add(md.optString(i, "").toLowerCase(java.util.Locale.ROOT));
+            org.json.JSONArray ma = o.optJSONArray("mem");
+            java.util.List<JSONObject> ms = new java.util.ArrayList<>();
+            for (int i = 0; ma != null && i < ma.length(); i++) {
+                JSONObject m = ma.optJSONObject(i);
+                if (m != null && !m.optString("d", "").trim().isEmpty() && !del.contains(m.optString("d").trim().toLowerCase(java.util.Locale.ROOT))) ms.add(m);
+            }
+            ms.sort((a, b) -> Long.compare(b.optLong("t", 0), a.optLong("t", 0)));
+            for (JSONObject m : ms) if (mem.size() < 20) mem.add(m.optString("d").trim());
+            JSONObject di = o.optJSONObject("diary");
+            String today = new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(new java.util.Date());
+            diaryToday = di == null ? "" : di.optString(today, "").trim();
             xp = Math.max(0, o.optDouble("xp", 0));
             double d = o.optDouble("dirt", 0);
             dirt = Double.isNaN(d) ? 0 : d;
@@ -1914,7 +1931,7 @@ final class Gadgets {
 
         /** La pecera se ensucia sola con el tiempo. */
         float dirt(long now) {
-            double gone = t > 0 ? Math.max(0, now - t) / 1000.0 / 180 : 0;
+            double gone = t > 0 ? Math.max(0, now - t) / 1000.0 / 864 : 0;
             return (float) Math.max(0, Math.min(100, dirt + gone));
         }
 
@@ -1969,7 +1986,7 @@ final class Gadgets {
         float food(long now) {
             if (t <= 0) return clamp(food);
             double[] sp = split(now);
-            return clamp(food - sp[1] / 288 - sp[0] / 864);
+            return clamp(food - sp[1] / 432 - sp[0] / 1296);
         }
 
         float happy(long now) {
@@ -2164,7 +2181,12 @@ final class Gadgets {
                     if (taps == 3 && setMood(ANGRY, 6)) return;
                     // Enamorado ya no es permanente: solo un ratito después de unos mimos
                     Pez pz = pez;
-                    if (taps < 3 && pz != null && pz.happy(System.currentTimeMillis()) > 80 && Math.random() < .25 && setMood(LOVE, 22)) return;
+                    if (PezTalk.sleeping() && pz != null && !pz.diaryToday.isEmpty()) {
+                        String d = pz.diaryToday;
+                        speak("📖 " + (d.length() > 160 ? d.substring(0, 159) + "…" : d));
+                        return;
+                    }
+                    if (taps < 3 && pz != null && Math.random() < .10 && setMood(LOVE, 15)) return;
                     String line = PezTalk.clickLine(act);
                     if (Math.random() < .25) special("el jefe lo acaba de tocar en la pantalla", line);
                     else speak(line);
@@ -2369,9 +2391,8 @@ final class Gadgets {
                         if ("pc".equals(fresh.by) && fresh.t != lastPcT && System.currentTimeMillis() - fresh.t < 20_000
                                 && ("feed".equals(ev) || "play".equals(ev) || "look".equals(ev) || "talk".equals(ev) || "clean".equals(ev))) {
                             lastPcT = fresh.t;
-                            boolean mimo = ("feed".equals(ev) || "play".equals(ev) || "clean".equals(ev))
-                                    && fresh.happy(System.currentTimeMillis()) > 85 && Math.random() < .4;
-                            setMood(mimo ? LOVE : SURPRISED, mimo ? 22 : 4);
+                            boolean mimo = ("feed".equals(ev) && Math.random() < .15) || ("play".equals(ev) && Math.random() < .25);
+                            setMood(mimo ? LOVE : SURPRISED, mimo ? 15 : 4);
                             String line = PezTalk.fromPc(act, ev);
                             if ("feed".equals(ev)) special("el jefe le acaba de dar de comer desde la compu", line);
                             else if ("play".equals(ev)) special("el jefe acaba de jugar con él desde la compu", line);
@@ -2701,6 +2722,10 @@ final class Gadgets {
                         speak(duo);
                     } else {
                         String chat = PezTalk.chatter(act, food, happy, MOOD_KEY[mk]);
+                        if (p != null && !p.mem.isEmpty() && Math.random() < .08) {
+                            String m = p.mem.get((int) (Math.random() * Math.min(5, p.mem.size())));
+                            chat = "Me acuerdo: " + (m.length() > 140 ? m.substring(0, 139) + "…" : m);
+                        }
                         String why = PezIA.allowed(act) ? PezIA.appMoment(act) : null;
                         if (why != null) special(why, chat);
                         else speak(chat);
