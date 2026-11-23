@@ -1890,8 +1890,16 @@ final class Gadgets {
         /** Nombre que le pusiste (en mayúsculas para la terminal; «PEZ» si no tiene), cuándo nació y la última vez que le hiciste caso. */
         final String name;
         final long born, seenT;
+        /** Hasta dónde leíste recados, el antojo de hoy y si ya se lo cumpliste. */
+        final long notaSeen;
+        final String antojo;
+        final boolean cravDone;
 
         Pez(JSONObject o) {
+            notaSeen = o.optLong("notaSeen", 0);
+            antojo = str(o, "antojo", "");
+            JSONObject dy = o.optJSONObject("day");
+            cravDone = dy != null && dy.optInt("cravDone", 0) == 1;
             String nm = str(o, "name", "").toUpperCase(new java.util.Locale("es", "MX")).replaceAll("\\s+", "_").replaceAll("[^A-Z0-9ÁÉÍÓÚÑÜ_-]", "");
             name = nm.isEmpty() ? "PEZ" : nm.length() > 12 ? nm.substring(0, 12) : nm;
             born = o.optLong("born", 0);
@@ -2027,6 +2035,8 @@ final class Gadgets {
             raw = null;
             fetchedAt = 0;
             appsAt = 0;
+            notaAt = 0;
+            nota = null;
             offline = false;
         }
         private static final ExecutorService NET = Executors.newSingleThreadExecutor();
@@ -2077,7 +2087,8 @@ final class Gadgets {
         private String colorOf;
         private int colorVal = 0xFFFFB02E;
         private Pez headFor;
-        private boolean headMade, headOffline, headAsleep;
+        private boolean headMade, headOffline, headAsleep, headNota;
+        private long headTick;
         private String head = "";
         // Lo que dice: una burbuja blanca unos segundos
         private String say, sayFor;
@@ -2139,7 +2150,19 @@ final class Gadgets {
         private float bgW, bgH;
         private int glowCol;
         private String sandRow;
-        private static long appsAt;
+        private static long appsAt, notaAt;
+        private static volatile JSONObject nota;
+        private long notaSaid;
+
+        /** El recado sin leer (más nuevo que notaSeen y de menos de 18 h), o null. */
+        private String unreadNota(Pez p) {
+            JSONObject n = nota;
+            if (n == null || p == null) return null;
+            long t = n.optLong("t", 0);
+            String txt = n.optString("txt", "").trim();
+            if (txt.isEmpty() || t <= p.notaSeen || System.currentTimeMillis() - t > 18 * 3600_000L) return null;
+            return txt;
+        }
 
         PezG(MainActivity a, HomeModel.Item it) {
             super(a, it);
@@ -2201,6 +2224,11 @@ final class Gadgets {
                     if (PezTalk.sleeping() && pz != null && !pz.diaryToday.isEmpty()) {
                         String d = pz.diaryToday;
                         speak("📖 " + (d.length() > 160 ? d.substring(0, 159) + "…" : d));
+                        return;
+                    }
+                    String pend = unreadNota(pz);
+                    if (pend != null && taps < 3) {
+                        speak("✉ " + (pend.length() > 200 ? pend.substring(0, 199) + "…" : pend));
                         return;
                     }
                     if (taps < 3 && pz != null && Math.random() < .10 && setMood(LOVE, 15)) return;
@@ -2392,6 +2420,16 @@ final class Gadgets {
                         a = new JSONObject(Weather.get(urlApps));
                     } catch (Throwable ignored) {
                         // sin datos de apps
+                    }
+                }
+                if (System.currentTimeMillis() - notaAt > 5 * 60_000L) {
+                    notaAt = System.currentTimeMillis();
+                    try {
+                        String u = PezKey.nota(app);
+                        String n = u == null ? null : Weather.get(u);
+                        nota = n == null || n.trim().equals("null") ? null : new JSONObject(n);
+                    } catch (Throwable ignored) {
+                        // sin recado o sin red: se queda el último
                     }
                 }
                 final JSONObject apps = a;
@@ -2730,6 +2768,12 @@ final class Gadgets {
             if (now0 != null) {
                 speak(now0);
                 nextChat = Math.max(nextChat, up + 20_000);
+            } else if (seen && !asleep && up > sayUntil && unreadNota(p) != null && nota != null && nota.optLong("t", 0) != notaSaid) {
+                notaSaid = nota.optLong("t", 0);
+                wantGreet = false;
+                String nt = unreadNota(p);
+                speak("✉ " + (nt.length() > 200 ? nt.substring(0, 199) + "…" : nt));
+                nextChat = up + 30_000;
             } else if (seen) {
                 if (wantGreet) {
                     wantGreet = false;
@@ -2959,7 +3003,11 @@ final class Gadgets {
         }
 
         private String header(Pez p) {
-            if (headMade && headFor == p && headOffline == offline && headAsleep == asleep) return head;
+            boolean hn = unreadNota(p) != null;
+            long tick = System.currentTimeMillis() / 60_000L;
+            if (headMade && headFor == p && headOffline == offline && headAsleep == asleep && headNota == hn && headTick == tick) return head;
+            headNota = hn;
+            headTick = tick;
             headMade = true;
             headFor = p;
             headOffline = offline;
@@ -2967,6 +3015,9 @@ final class Gadgets {
             String s;
             if (p == null) s = offline ? "> sin conexión" : "> buscando al pez…";
             else if (asleep) s = "> zzz… está dormido";
+            else if (hn) s = "> ✉ te dejó un recado (tócalo)";
+            else if (!p.antojo.isEmpty() && (p.ev.isEmpty() || System.currentTimeMillis() - p.t > 10 * 60_000L))
+                s = "> 💭 antojo: " + p.antojo + (p.cravDone ? " ✅" : " ⏳");
             else if (!p.ev.isEmpty()) s = "> " + (p.by.isEmpty() ? "" : p.by + ": ") + p.ev;
             else s = "> todo tranquilo";
             if (p != null && offline) s += "  · sin conexión";

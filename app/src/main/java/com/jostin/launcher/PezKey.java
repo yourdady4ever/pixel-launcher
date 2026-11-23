@@ -47,6 +47,12 @@ final class PezKey {
         return k == null ? null : DB + k + "/apps.json";
     }
 
+    /** Recado que deja el pez cuando llevas rato sin pelarlo (lo escribe el servidor; aquí solo se lee). */
+    static String nota(Context c) {
+        String k = get(c);
+        return k == null ? null : DB + k + "/nota.json";
+    }
+
     static String appsCel(Context c) {
         String k = get(c);
         return k == null ? null : DB + k + "/apps/cel.json";
