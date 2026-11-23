@@ -131,7 +131,8 @@ final class AppUsage {
                 if (usm == null) return;
                 long from = startOfDay(), now = System.currentTimeMillis();
                 java.util.Map<String, Long> fg = new java.util.HashMap<>();
-                long duoLast = scan(usm, from, now, fg);
+                int[] unlocks = {0};
+                long duoLast = scan(usm, from, now, fg, unlocks);
                 long tiktokMs = 0;
                 for (String t : TIKTOK) {
                     Long v = fg.get(t);
@@ -142,7 +143,10 @@ final class AppUsage {
                 // Si Duolingo avisó de la racha después de abrirlo, todavía no está hecha
                 boolean duo = duoLast >= from && duoLast > PezTalk.duoAlertAt;
                 int tk = (int) (tiktokMs / 60_000L);
-                String same = tk + "/" + duo;
+                // Resumen de cómo va el cel (sin textos de notificaciones ni apps de dinero); viaja solo a la ruta con clave
+                String resumen = CelResumen.build(c, fg, unlocks[0], duo);
+                CelResumen.last = resumen;
+                String same = tk + "/" + duo + "/" + resumen;
                 // Sin cambios, se sube cuando mucho cada 15 min (para que el pez sepa que sigue vigente)
                 if (same.equals(putLast) && now - putAt < 15 * 60_000L) return;
                 putLast = same;
@@ -150,6 +154,7 @@ final class AppUsage {
                 JSONObject o = new JSONObject();
                 o.put("tiktok", tk);
                 o.put("duo", duo);
+                o.put("resumen", resumen);
                 o.put("t", now);
                 String dest = PezKey.appsCel(c);
                 if (dest == null) return;
@@ -164,6 +169,12 @@ final class AppUsage {
     /** Suma el tiempo de hoy en primer plano por app; devuelve cuándo se abrió Duolingo por última vez. */
     @SuppressWarnings("deprecation")
     static long scan(UsageStatsManager usm, long from, long now, java.util.Map<String, Long> fg) {
+        return scan(usm, from, now, fg, null);
+    }
+
+    /** Lo mismo y, si unlocks no es null, cuenta cuántas veces se desbloqueó hoy. */
+    @SuppressWarnings("deprecation")
+    static long scan(UsageStatsManager usm, long from, long now, java.util.Map<String, Long> fg, int[] unlocks) {
         UsageEvents evs = usm.queryEvents(from, now);
         UsageEvents.Event e = new UsageEvents.Event();
         java.util.Map<String, Long> open = new java.util.HashMap<>();
@@ -173,6 +184,7 @@ final class AppUsage {
             String p = e.getPackageName();
             int type = e.getEventType();
             long ts = e.getTimeStamp();
+            if (unlocks != null && android.os.Build.VERSION.SDK_INT >= 28 && type == UsageEvents.Event.KEYGUARD_HIDDEN) unlocks[0]++;
             if (type == UsageEvents.Event.MOVE_TO_FOREGROUND) {
                 if (DUO.equals(p)) duoLast = ts;
                 if (!open.containsKey(p)) open.put(p, ts);
@@ -339,8 +351,9 @@ final class AppUsage {
 
     /** La pantallita que explica el permiso antes de mandarte a los ajustes de Android. */
     static void explain(Activity a, Backdrop b) {
-        TextView t = Ui.text(a, "Con «Acceso al uso», el pez sabe cuántos minutos llevas hoy en TikTok y si ya abriste Duolingo, y te lo comenta.\n\n"
-                + "Solo se suben esos dos datos y la hora, cada 5 minutos con la pantalla prendida. Nada de historial ni otras apps. "
+        TextView t = Ui.text(a, "Con «Acceso al uso», el pez sabe cómo va tu cel hoy y te lo comenta: pantalla, tus apps más usadas, desbloqueos, batería, "
+                + "música, cuántas notificaciones tienes por app (nunca su texto ni de quién), tu próximo evento, la alarma, el clima y si ya hiciste Duolingo.\n\n"
+                + "Se sube un resumen corto cada 5 minutos con la pantalla prendida. Bancos, Spin y apps de dinero nunca salen. "
                 + "Ojo: esos datos los puede leer quien tenga la dirección de tu pez.", 14, Ui.MUTED, Ui.REGULAR);
         t.setLineSpacing(0, 1.2f);
         t.setPadding(Ui.dp(a, 10), 0, Ui.dp(a, 10), Ui.dp(a, 10));

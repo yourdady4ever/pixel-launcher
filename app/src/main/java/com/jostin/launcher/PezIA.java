@@ -144,7 +144,7 @@ final class PezIA {
                         .put("happy", Math.round(happy))
                         .put("hora", new SimpleDateFormat("HH:mm", Locale.US).format(new Date()))
                         .put("donde", "cel")
-                        .put("extra", extra == null ? "" : extra.length() > 240 ? extra.substring(0, 240) : extra);
+                        .put("extra", extra == null ? "" : extra.length() > 900 ? extra.substring(0, 900) : extra);
                 JSONObject body = new JSONObject().put("k", key).put("msg", "").put("ctx", ctx).put("hist", new JSONArray());
                 h = (HttpURLConnection) new URL(URL_IA).openConnection();
                 h.setConnectTimeout(4000);

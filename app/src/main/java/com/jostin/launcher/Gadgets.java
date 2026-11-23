@@ -2253,7 +2253,10 @@ final class Gadgets {
                 return;
             }
             asking = true;
-            PezIA.ask(act, MOOD_ES[curMood], curFood, curHappy, extra, 3500, t -> {
+            // Lo del momento + cómo va el cel (si compartes el uso)
+            String cel = AppUsage.wanted(act) ? CelResumen.last : null;
+            String ctx = cel == null || cel.isEmpty() ? extra : extra + ". Cómo va su cel: " + cel;
+            PezIA.ask(act, MOOD_ES[curMood], curFood, curHappy, ctx, 3500, t -> {
                 asking = false;
                 speak(t != null ? t : fallback);
             });
