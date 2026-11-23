@@ -2165,7 +2165,9 @@ final class Gadgets {
                     // Enamorado ya no es permanente: solo un ratito después de unos mimos
                     Pez pz = pez;
                     if (taps < 3 && pz != null && pz.happy(System.currentTimeMillis()) > 80 && Math.random() < .25 && setMood(LOVE, 22)) return;
-                    speak(PezTalk.clickLine(act));
+                    String line = PezTalk.clickLine(act);
+                    if (Math.random() < .25) special("el jefe lo acaba de tocar en la pantalla", line);
+                    else speak(line);
                 } else {
                     open();
                 }
@@ -2237,6 +2239,24 @@ final class Gadgets {
                 glyphGlow.put(ch, b);
             }
             return b;
+        }
+
+        private static final String[] MOOD_ES = {"dormido", "hambriento", "triste", "aburrido", "fiestero", "llenito", "enamorado", "feliz", "tranquilo", "enojado", "mareado", "sorprendido", "orgulloso"};
+        private int curMood = 8;
+        private float curFood = 100, curHappy = 100;
+        private boolean curSeen, asking;
+
+        /** Momento especial: la IA del pez si se puede (visible, de día, con límites); si no o si falla, la frase normal. */
+        private void special(String extra, String fallback) {
+            if (!curSeen || asking || !PezIA.allowed(act)) {
+                speak(fallback);
+                return;
+            }
+            asking = true;
+            PezIA.ask(act, MOOD_ES[curMood], curFood, curHappy, extra, 3500, t -> {
+                asking = false;
+                speak(t != null ? t : fallback);
+            });
         }
 
         private void speak(String s) {
@@ -2349,7 +2369,11 @@ final class Gadgets {
                             boolean mimo = ("feed".equals(ev) || "play".equals(ev) || "clean".equals(ev))
                                     && fresh.happy(System.currentTimeMillis()) > 85 && Math.random() < .4;
                             setMood(mimo ? LOVE : SURPRISED, mimo ? 22 : 4);
-                            speak(PezTalk.fromPc(act, ev));
+                            String line = PezTalk.fromPc(act, ev);
+                            if ("feed".equals(ev)) special("el jefe le acaba de dar de comer desde la compu", line);
+                            else if ("play".equals(ev)) special("el jefe acaba de jugar con él desde la compu", line);
+                            else if ("clean".equals(ev)) special("el jefe le acaba de limpiar la pecera desde la compu", line);
+                            else speak(line);
                         }
                         // Se guarda solo si cambió, para no escribir en disco cada 15 s
                         if (!body.equals(raw)) {
@@ -2471,6 +2495,10 @@ final class Gadgets {
             ui.setTextSize(hs);
             ui.setTextAlign(Paint.Align.LEFT);
             int mk = mood(p, food, happy, up);
+            curMood = mk;
+            curFood = food;
+            curHappy = happy;
+            curSeen = seen;
             String mood = p == null && offline ? "SIN RED" : offline ? MOOD_OFF[mk] : MOOD_LBL[mk];
             int moodCol = alert ? RED : GREEN;
             ui.clearShadowLayer();
@@ -2482,6 +2510,8 @@ final class Gadgets {
             ui.setColor(Ui.alpha(GREEN, 0xC0));
             int lv = p == null ? 0 : p.level();
             if (lv != lvlFor) {
+                // Subió de nivel: momento especial
+                if (lv > 0 && PezIA.levelUp(act, lv)) special("acaba de subir a nivel " + lv, "¡Subí a nivel " + lv + "! ★");
                 lvlFor = lv;
                 lvlText = lv > 0 ? "C:\\ESTUDIO\\PEZ.EXE  NV " + lv : "C:\\ESTUDIO\\PEZ.EXE";
             }
@@ -2656,7 +2686,9 @@ final class Gadgets {
             } else if (seen) {
                 if (wantGreet) {
                     wantGreet = false;
-                    speak(PezTalk.greet(act, food, happy));
+                    String g = PezTalk.greet(act, food, happy), why = PezIA.greetMoment(act);
+                    if (why != null) special(why, g);
+                    else speak(g);
                     nextChat = up + 25_000 + (long) (Math.random() * 20_000);
                 } else if (up >= nextChat && up > sayUntil) {
                     nextChat = up + 25_000 + (long) (Math.random() * 20_000);
@@ -2665,10 +2697,15 @@ final class Gadgets {
                         seenDuo = PezTalk.duoAlertAt;
                         speak(duo);
                     } else {
-                        speak(PezTalk.chatter(act, food, happy, MOOD_KEY[mk]));
+                        String chat = PezTalk.chatter(act, food, happy, MOOD_KEY[mk]);
+                        String why = PezIA.allowed(act) ? PezIA.appMoment(act) : null;
+                        if (why != null) special(why, chat);
+                        else speak(chat);
                     }
                 }
             }
+
+            if (seen) PezIA.markSeen(act);
 
             // Dormido le salen zetas de la cabeza
             if (!still && asleep) {
